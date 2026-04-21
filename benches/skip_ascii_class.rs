@@ -18,7 +18,7 @@
 //!   matters more than the SIMD throughput win.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use skipchr::{Needles, skip};
+use memspan::{Needles, skip};
 use std::hint::black_box;
 
 /// Sizes for the per-call micro benches.
@@ -30,8 +30,6 @@ const DENSITY_RUNS: [usize; 5] = [4, 16, 64, 256, 1024];
 /// Sweep buffer length (large enough to dominate per-call costs over many
 /// iterations of `scan_all`).
 const SWEEP_LEN: usize = 64 * 1024;
-
-// ---- input builders -------------------------------------------------------
 
 fn input_with_miss_at_end(len: usize, fill: u8, miss: u8) -> Vec<u8> {
   let mut input = vec![fill; len];
@@ -51,8 +49,6 @@ fn input_with_periodic_miss(len: usize, fill: u8, miss: u8, run: usize) -> Vec<u
   }
   input
 }
-
-// ---- scan-all helpers -----------------------------------------------------
 
 fn scan_all_specialized<F>(input: &[u8], f: F) -> usize
 where
@@ -84,8 +80,6 @@ where
   checksum
 }
 
-// ---- scalar reference predicates -----------------------------------------
-
 #[inline(always)]
 fn scalar_prefix_len_by(input: &[u8], pred: impl Fn(u8) -> bool) -> usize {
   input.iter().position(|&b| !pred(b)).unwrap_or(input.len())
@@ -107,8 +101,6 @@ fn is_digit(b: u8) -> bool {
 fn is_hex(b: u8) -> bool {
   b.is_ascii_hexdigit()
 }
-
-// ---- bench builder --------------------------------------------------------
 
 /// One micro/full_match group per specialization. `specialized` is the public
 /// fn under test; `needles` is the equivalent needle array; `pred` is the
@@ -208,8 +200,6 @@ fn bench_one_density<F, P, const N: usize>(
   group.finish();
 }
 
-// ---- per-class entry points ----------------------------------------------
-
 fn bench_binary(c: &mut Criterion) {
   // 2 needles → skip_while routes to memchr2 (already SIMD-saturated).
   bench_one_micro(
@@ -300,8 +290,6 @@ fn bench_hex(c: &mut Criterion) {
     b'g',
   );
 }
-
-// ---- realistic numeric workloads ----------------------------------------
 
 /// CSV-like stream of decimal integers, comma-separated.
 fn bench_workload_csv_numbers(c: &mut Criterion) {

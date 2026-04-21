@@ -2,31 +2,23 @@
 //! classes that exercise the bytes-only, ranges-only, and mixed paths, then
 //! run the same byte-table + miss-position checks the built-in fns get.
 
-// ---- bytes only ----------------------------------------------------------
-
-skipchr::skip_class! {
+memspan::skip_class! {
   /// Whitespace plus a comma separator.
   pub fn skip_ws_and_comma(bytes = [b' ', b'\t', b'\r', b'\n', b',']);
 }
 
-// ---- ranges only ---------------------------------------------------------
-
-skipchr::skip_class! {
+memspan::skip_class! {
   /// Lowercase ASCII letters only.
   pub fn skip_lowercase(ranges = [b'a'..=b'z']);
 }
 
-// ---- bytes + ranges ------------------------------------------------------
-
-skipchr::skip_class! {
+memspan::skip_class! {
   /// Alphanumeric plus a few punctuation bytes.
   pub fn skip_punct_ident(
     bytes = [b'_', b'-', b'!', b'?'],
     ranges = [b'a'..=b'z', b'A'..=b'Z', b'0'..=b'9'],
   );
 }
-
-// ---- helpers -------------------------------------------------------------
 
 fn assert_byte_table<F, P>(skip_fn: F, pred: P, name: &str)
 where
@@ -66,8 +58,6 @@ where
   }
 }
 
-// ---- skip_ws_and_comma ----------------------------------------------------
-
 #[test]
 fn ws_and_comma_basic() {
   assert_eq!(skip_ws_and_comma(b""), 0);
@@ -93,8 +83,6 @@ fn ws_and_comma_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip_ws_and_comma, b',', b'q', "skip_ws_and_comma");
 }
 
-// ---- skip_lowercase (ranges only) ----------------------------------------
-
 #[test]
 fn lowercase_basic() {
   assert_eq!(skip_lowercase(b""), 0);
@@ -118,8 +106,6 @@ fn lowercase_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip_lowercase, b'a', b'A', "skip_lowercase");
   assert_miss_position_exhaustive(skip_lowercase, b'z', b'1', "skip_lowercase");
 }
-
-// ---- skip_punct_ident (mixed) --------------------------------------------
 
 #[test]
 fn punct_ident_basic() {
@@ -151,15 +137,13 @@ fn punct_ident_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip_punct_ident, b'9', b'@', "skip_punct_ident");
 }
 
-// ---- full-range edge case (0x00..=0xFF) -----------------------------------
-
 /// Regression test: a range that spans all 256 byte values must match every
 /// byte. The NEON and WASM SIMD128 paths use the `hi - lo + 1` trick, which
 /// wraps to 0 for `0x00..=0xFF`, producing an always-false mask unless the
 /// overflow is special-cased.
 #[test]
 fn full_range_matches_all_bytes() {
-  skipchr::skip_class! {
+  memspan::skip_class! {
     pub fn skip_all_bytes(ranges = [0x00u8..=0xFFu8]);
   }
 
@@ -186,14 +170,12 @@ fn full_range_matches_all_bytes() {
   }
 }
 
-// ---- generated fn matches built-in equivalents ---------------------------
-
 /// `skip_class!` with the same byte set as our built-in `skip_whitespace`
 /// must produce identical results across the byte table — sanity-checks
 /// that the macro hasn't drifted from the hand-written specialization.
 #[test]
 fn generated_whitespace_matches_builtin() {
-  skipchr::skip_class! {
+  memspan::skip_class! {
     pub fn skip_ws_macro(bytes = [b' ', b'\t', b'\r', b'\n']);
   }
 
@@ -201,7 +183,7 @@ fn generated_whitespace_matches_builtin() {
     let input = [b];
     assert_eq!(
       skip_ws_macro(&input),
-      skipchr::skip::skip_whitespace(&input),
+      memspan::skip::skip_whitespace(&input),
       "byte 0x{b:02x}: macro vs built-in disagreed"
     );
   }
@@ -213,7 +195,7 @@ fn generated_whitespace_matches_builtin() {
       input[offset] = b'!';
       assert_eq!(
         skip_ws_macro(&input),
-        skipchr::skip::skip_whitespace(&input),
+        memspan::skip::skip_whitespace(&input),
         "len={len}, offset={offset}"
       );
     }

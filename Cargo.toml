@@ -1,10 +1,10 @@
 [package]
-name = "skipchr"
+name = "memspan"
 version = "0.1.0"
 edition = "2024"
-repository = "https://github.com/al8n/skipchr"
-homepage = "https://github.com/al8n/skipchr"
-documentation = "https://docs.rs/skipchr"
+repository = "https://github.com/al8n/memspan"
+homepage = "https://github.com/al8n/memspan"
+documentation = "https://docs.rs/memspan"
 description = "SIMD-accelerated byte-class scanning for lexers and parsers. Backends: AVX-512, AVX2, SSE4.1, NEON, WASM SIMD128. no_std compatible."
 license = "MIT OR Apache-2.0"
 rust-version = "1.95.0"
@@ -84,9 +84,9 @@ unexpected_cfgs = { level = "warn", check-cfg = [
   # Testing / coverage helpers. Set via `RUSTFLAGS='--cfg ...'` in CI to
   # force the dispatcher down specific tiers so every fallback path gets
   # coverage even on runners that would normally pick the top tier.
-  'cfg(skipchr_force_scalar)',
-  'cfg(skipchr_disable_avx512)',
-  'cfg(skipchr_disable_avx2)',
-  'cfg(skipchr_disable_sse42)',
-  'cfg(skipchr_disable_simd128)',
+  'cfg(memspan_force_scalar)',
+  'cfg(memspan_disable_avx512)',
+  'cfg(memspan_disable_avx2)',
+  'cfg(memspan_disable_sse42)',
+  'cfg(memspan_disable_simd128)',
 ] }

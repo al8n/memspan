@@ -1,6 +1,4 @@
-use skipchr::skip;
-
-// ---- skip_binary -----------------------------------------------------------
+use memspan::skip;
 
 #[test]
 fn skip_binary_basic() {
@@ -31,8 +29,6 @@ fn skip_binary_chunk_boundaries_exhaustive() {
   }
 }
 
-// ---- skip_octal_digits ----------------------------------------------------
-
 #[test]
 fn skip_octal_basic() {
   assert_eq!(skip::skip_octal_digits(b""), 0);
@@ -59,8 +55,6 @@ fn skip_octal_chunk_boundaries_exhaustive() {
   }
 }
 
-// ---- skip_digits ----------------------------------------------------------
-
 #[test]
 fn skip_digits_basic() {
   assert_eq!(skip::skip_digits(b""), 0);
@@ -85,8 +79,6 @@ fn skip_digits_chunk_boundaries_exhaustive() {
     assert_eq!(skip::skip_digits(&input), len, "len={len}, all-match");
   }
 }
-
-// ---- skip_hex_digits ------------------------------------------------------
 
 #[test]
 fn skip_hex_digits_basic() {

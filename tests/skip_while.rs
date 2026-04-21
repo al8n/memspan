@@ -1,4 +1,4 @@
-use skipchr::skip;
+use memspan::skip;
 
 #[test]
 fn skip_while_handles_single_needle() {

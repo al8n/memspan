@@ -1,4 +1,4 @@
-use skipchr::skip;
+use memspan::skip;
 
 fn scalar_count(input: &[u8], needles: &[u8]) -> usize {
   input.iter().filter(|&&b| needles.contains(&b)).count()

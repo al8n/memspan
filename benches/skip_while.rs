@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use skipchr::{Needles, skip};
+use memspan::{Needles, skip};
 use std::hint::black_box;
 
 /// Sizes for the per-call micro benches. Includes points around the SIMD

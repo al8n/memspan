@@ -7,9 +7,7 @@
 //! the entire `u8` space, plus an exhaustive miss-position scan over lengths
 //! that span the probe boundary, the SIMD loop, and the overlap tail.
 
-use skipchr::skip;
-
-// ---- helpers --------------------------------------------------------------
+use memspan::skip;
 
 fn ref_is_alpha(b: u8) -> bool {
   let lower = b | 0x20;
@@ -57,8 +55,6 @@ where
   }
 }
 
-// ---- skip_whitespace -----------------------------------------------------
-
 #[test]
 fn skip_whitespace_basic() {
   assert_eq!(skip::skip_whitespace(b""), 0);
@@ -84,8 +80,6 @@ fn skip_whitespace_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip::skip_whitespace, b' ', b'a', "skip_whitespace");
 }
 
-// ---- skip_alpha -----------------------------------------------------------
-
 #[test]
 fn skip_alpha_basic() {
   assert_eq!(skip::skip_alpha(b""), 0);
@@ -110,8 +104,6 @@ fn skip_alpha_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip::skip_alpha, b'z', b'_', "skip_alpha");
 }
 
-// ---- skip_alphanumeric ---------------------------------------------------
-
 #[test]
 fn skip_alphanumeric_basic() {
   assert_eq!(skip::skip_alphanumeric(b""), 0);
@@ -133,8 +125,6 @@ fn skip_alphanumeric_byte_table() {
 fn skip_alphanumeric_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip::skip_alphanumeric, b'a', b'-', "skip_alphanumeric");
 }
-
-// ---- skip_ident_start ----------------------------------------------------
 
 #[test]
 fn skip_ident_start_basic() {
@@ -161,8 +151,6 @@ fn skip_ident_start_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip::skip_ident_start, b'a', b'1', "skip_ident_start");
   assert_miss_position_exhaustive(skip::skip_ident_start, b'_', b'-', "skip_ident_start");
 }
-
-// ---- skip_ident ----------------------------------------------------------
 
 #[test]
 fn skip_ident_basic() {

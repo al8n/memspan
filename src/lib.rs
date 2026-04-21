@@ -100,7 +100,7 @@ pub mod __macro {
 /// # Syntax
 ///
 /// ```ignore
-/// skipchr::skip_class! {
+/// memspan::skip_class! {
 ///     /// Doc comment forwarded to the generated fn.
 ///     pub fn skip_my_class(
 ///         bytes  = [b' ', b'\t'],          // optional
@@ -119,7 +119,7 @@ pub mod __macro {
 /// A bytes-only class — whitespace plus a comma separator:
 ///
 /// ```
-/// skipchr::skip_class! {
+/// memspan::skip_class! {
 ///     pub fn skip_ws_and_comma(bytes = [b' ', b'\t', b'\r', b'\n', b',']);
 /// }
 ///
@@ -130,7 +130,7 @@ pub mod __macro {
 /// A range-only class — the leading run of lowercase ASCII letters:
 ///
 /// ```
-/// skipchr::skip_class! {
+/// memspan::skip_class! {
 ///     pub fn skip_lowercase(ranges = [b'a'..=b'z']);
 /// }
 ///
@@ -140,7 +140,7 @@ pub mod __macro {
 /// A mixed class — alphanumeric plus a few punctuation bytes:
 ///
 /// ```
-/// skipchr::skip_class! {
+/// memspan::skip_class! {
 ///     pub fn skip_punct_ident(
 ///         bytes  = [b'_', b'-', b'!', b'?'],
 ///         ranges = [b'a'..=b'z', b'A'..=b'Z', b'0'..=b'9'],

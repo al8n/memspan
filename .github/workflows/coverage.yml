@@ -28,15 +28,15 @@ env:
 # - aarch64 NEON (macOS): covers src/skip/neon.rs plus the
 #   `neon_available()` branch of the dispatcher.
 # - aarch64 scalar-forced: covers the scalar fallback branch of the
-#   dispatcher on aarch64 (reached only when `skipchr_force_scalar` is
+#   dispatcher on aarch64 (reached only when `memspan_force_scalar` is
 #   set, since NEON is mandatory on Apple Silicon otherwise).
 # - x86_64 default (Linux): covers whichever top tier the runner CPU
 #   supports (typically AVX2 on AMD Milan ubuntu-latest runners).
-# - x86_64 AVX2-max: `--cfg skipchr_disable_avx512` forces the AVX2
+# - x86_64 AVX2-max: `--cfg memspan_disable_avx512` forces the AVX2
 #   dispatcher branch regardless of runner CPU.
-# - x86_64 SSE4.2-max: `--cfg skipchr_disable_avx512 --cfg
-#   skipchr_disable_avx2` forces the SSE4.2 dispatcher branch.
-# - x86_64 scalar-forced: `--cfg skipchr_force_scalar` forces the scalar
+# - x86_64 SSE4.2-max: `--cfg memspan_disable_avx512 --cfg
+#   memspan_disable_avx2` forces the SSE4.2 dispatcher branch.
+# - x86_64 scalar-forced: `--cfg memspan_force_scalar` forces the scalar
 #   dispatcher branch on x86_64.
 # - x86_64 Windows: validates the MSVC toolchain compiles the
 #   intrinsic-heavy modules and reports coverage of their default runtime
@@ -66,7 +66,7 @@ jobs:
               --exclude-files 'src/needles/arch/wasm32.rs'
           - os: macos-latest
             label: macos-aarch64-scalar
-            rustflags: '--cfg skipchr_force_scalar'
+            rustflags: '--cfg memspan_force_scalar'
             exclude_arch: >-
               --exclude-files 'src/skip/sse42.rs'
               --exclude-files 'src/skip/avx2.rs'
@@ -88,21 +88,21 @@ jobs:
               --exclude-files 'src/needles/arch/wasm32.rs'
           - os: ubuntu-latest
             label: linux-x86_64-avx2-max
-            rustflags: '--cfg skipchr_disable_avx512'
+            rustflags: '--cfg memspan_disable_avx512'
             exclude_arch: >-
               --exclude-files 'src/skip/neon.rs'
               --exclude-files 'src/skip/simd128.rs'
               --exclude-files 'src/needles/arch/wasm32.rs'
           - os: ubuntu-latest
             label: linux-x86_64-sse42-max
-            rustflags: '--cfg skipchr_disable_avx512 --cfg skipchr_disable_avx2'
+            rustflags: '--cfg memspan_disable_avx512 --cfg memspan_disable_avx2'
             exclude_arch: >-
               --exclude-files 'src/skip/neon.rs'
               --exclude-files 'src/skip/simd128.rs'
               --exclude-files 'src/needles/arch/wasm32.rs'
           - os: ubuntu-latest
             label: linux-x86_64-scalar
-            rustflags: '--cfg skipchr_force_scalar'
+            rustflags: '--cfg memspan_force_scalar'
             exclude_arch: >-
               --exclude-files 'src/skip/neon.rs'
               --exclude-files 'src/skip/simd128.rs'

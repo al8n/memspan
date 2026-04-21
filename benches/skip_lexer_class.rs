@@ -10,7 +10,7 @@
 //! baseline).
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use skipchr::{Needles, skip};
+use memspan::{Needles, skip};
 use std::hint::black_box;
 
 const MICRO_LENGTHS: [usize; 6] = [16, 32, 64, 256, 4 * 1024, 64 * 1024];
@@ -101,8 +101,6 @@ fn is_ident_start(b: u8) -> bool {
 fn is_ident(b: u8) -> bool {
   is_alphanumeric(b) || b == b'_'
 }
-
-// ---- generic builders ----------------------------------------------------
 
 fn bench_one_micro<F, P, const N: usize>(
   c: &mut Criterion,
@@ -198,8 +196,6 @@ fn bench_one_density<F, P, const N: usize>(
   group.finish();
 }
 
-// ---- needle sets ---------------------------------------------------------
-
 const WS_NEEDLES: [u8; 4] = [b' ', b'\t', b'\n', b'\r'];
 
 const ALPHA_NEEDLES: [u8; 52] = *b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -209,8 +205,6 @@ const ALNUM_NEEDLES: [u8; 62] = *b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRS
 const IDENT_START_NEEDLES: [u8; 53] = *b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
 
 const IDENT_NEEDLES: [u8; 63] = *b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
-
-// ---- per-class entry points ---------------------------------------------
 
 fn bench_whitespace(c: &mut Criterion) {
   bench_one_micro(
@@ -316,8 +310,6 @@ fn bench_ident(c: &mut Criterion) {
     b'-',
   );
 }
-
-// ---- realistic workloads ------------------------------------------------
 
 /// Pretty-printed JSON with mixed identifier-like keys, whitespace, and
 /// punctuation. Exercises `skip_whitespace` in a tight scan-all loop the way

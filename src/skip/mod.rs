@@ -307,7 +307,7 @@ macro_rules! x86_class_dispatch {
 /// Dispatches to AVX-512BW / AVX2 / SSE4.2 (x86_64), NEON (aarch64), or
 /// WASM SIMD128 (wasm32) depending on what the CPU supports at runtime.
 /// Falls back to a scalar loop on unsupported targets or when SIMD is
-/// disabled via `skipchr_force_scalar`.
+/// disabled via `memspan_force_scalar`.
 #[cfg_attr(not(tarpaulin), inline(always))]
 pub fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where

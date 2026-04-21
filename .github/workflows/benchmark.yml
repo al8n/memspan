@@ -49,7 +49,7 @@ jobs:
             rustflags: ''
             label: macos-aarch64-neon
 
-          # aarch64 with NEON forced off via `skipchr_force_scalar`: the
+          # aarch64 with NEON forced off via `memspan_force_scalar`: the
           # dispatcher takes the scalar fallback on every call. Gives a
           # like-for-like scalar baseline on the same hardware as the NEON
           # tier above, so the NEON win is measurable without cross-runner
@@ -57,7 +57,7 @@ jobs:
           - os: macos-latest
             arch: aarch64
             tier: scalar
-            rustflags: '--cfg skipchr_force_scalar'
+            rustflags: '--cfg memspan_force_scalar'
             label: macos-aarch64-scalar
 
           # x86_64 default — runtime dispatcher picks whichever x86 tier
@@ -81,7 +81,7 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             tier: avx2-max
-            rustflags: '--cfg skipchr_disable_avx512'
+            rustflags: '--cfg memspan_disable_avx512'
             label: ubuntu-x86_64-avx2-max
 
           # x86_64 with AVX-512 and AVX2 both disabled: forces the SSE4.2
@@ -90,7 +90,7 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             tier: sse42-max
-            rustflags: '--cfg skipchr_disable_avx512 --cfg skipchr_disable_avx2'
+            rustflags: '--cfg memspan_disable_avx512 --cfg memspan_disable_avx2'
             label: ubuntu-x86_64-sse42-max
 
           # x86_64 with every SIMD backend short-circuited: scalar-only
@@ -99,7 +99,7 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             tier: scalar
-            rustflags: '--cfg skipchr_force_scalar'
+            rustflags: '--cfg memspan_force_scalar'
             label: ubuntu-x86_64-scalar
 
           # x86_64 with `-C target-cpu=native`: enables the full feature

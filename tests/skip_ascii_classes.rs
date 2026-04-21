@@ -1,4 +1,4 @@
-use skipchr::skip;
+use memspan::skip;
 
 fn assert_prefix_boundaries(scanner: fn(&[u8]) -> usize, fill: u8, miss: u8) {
   for len in 0usize..=96 {
@@ -50,8 +50,6 @@ fn skip_octal_digits_handles_ascii_octal_prefix() {
   assert_prefix_boundaries(skip::skip_octal_digits, b'7', b'8');
 }
 
-// ---- skip_lower ------------------------------------------------------------
-
 #[test]
 fn skip_lower_basic() {
   assert_eq!(skip::skip_lower(b""), 0);
@@ -79,8 +77,6 @@ fn skip_lower_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_lower, b'a', b'A');
 }
 
-// ---- skip_upper ------------------------------------------------------------
-
 #[test]
 fn skip_upper_basic() {
   assert_eq!(skip::skip_upper(b""), 0);
@@ -107,8 +103,6 @@ fn skip_upper_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_upper, b'Z', b'a');
 }
 
-// ---- skip_ascii ------------------------------------------------------------
-
 #[test]
 fn skip_ascii_basic() {
   assert_eq!(skip::skip_ascii(b""), 0);
@@ -130,8 +124,6 @@ fn skip_ascii_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_ascii, b'z', 0x80);
 }
 
-// ---- skip_non_ascii --------------------------------------------------------
-
 #[test]
 fn skip_non_ascii_basic() {
   assert_eq!(skip::skip_non_ascii(b""), 0);
@@ -152,8 +144,6 @@ fn skip_non_ascii_every_byte() {
 fn skip_non_ascii_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_non_ascii, 0xC0, b'a');
 }
-
-// ---- skip_ascii_graphic ----------------------------------------------------
 
 #[test]
 fn skip_ascii_graphic_basic() {
@@ -182,8 +172,6 @@ fn skip_ascii_graphic_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_ascii_graphic, b'!', b' ');
 }
 
-// ---- skip_ascii_control ----------------------------------------------------
-
 #[test]
 fn skip_ascii_control_basic() {
   assert_eq!(skip::skip_ascii_control(b""), 0);
@@ -205,8 +193,6 @@ fn skip_ascii_control_every_byte() {
 fn skip_ascii_control_chunk_boundaries() {
   assert_prefix_boundaries(skip::skip_ascii_control, b'\x01', b' ');
 }
-
-// ---- skip_until_newline ----------------------------------------------------
 
 fn scalar_skip_until_newline(input: &[u8]) -> usize {
   input
@@ -264,8 +250,6 @@ fn skip_until_newline_chunk_boundaries() {
     );
   }
 }
-
-// ---- contains_any ----------------------------------------------------------
 
 #[test]
 fn contains_any_basic() {
