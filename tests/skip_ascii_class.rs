@@ -108,7 +108,7 @@ fn skip_hex_digits_basic() {
 fn skip_hex_digits_case_fold_boundary_chars() {
   // For every byte, decide if it should be hex-digit-able and check.
   for b in 0u8..=255u8 {
-    let expected_hex = matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F');
+    let expected_hex = b.is_ascii_hexdigit();
     let input = [b];
     let result = skip::skip_hex_digits(&input);
     let want = if expected_hex { 1 } else { 0 };

@@ -107,7 +107,7 @@ fn lowercase_basic() {
 fn lowercase_byte_table() {
   assert_byte_table(
     skip_lowercase,
-    |b| (b'a'..=b'z').contains(&b),
+    |b: u8| b.is_ascii_lowercase(),
     "skip_lowercase",
   );
 }
@@ -133,11 +133,11 @@ fn punct_ident_basic() {
 fn punct_ident_byte_table() {
   assert_byte_table(
     skip_punct_ident,
-    |b| {
+    |b: u8| {
       matches!(b, b'_' | b'-' | b'!' | b'?')
-        || (b'a'..=b'z').contains(&b)
-        || (b'A'..=b'Z').contains(&b)
-        || (b'0'..=b'9').contains(&b)
+        || b.is_ascii_lowercase()
+        || b.is_ascii_uppercase()
+        || b.is_ascii_digit()
     },
     "skip_punct_ident",
   );

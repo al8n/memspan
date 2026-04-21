@@ -141,7 +141,7 @@ macro_rules! skip_class {
         let _ = b;
         false
         $( $( || b == $byte )+ )?
-        $( $( || (b >= $lo && b <= $hi) )+ )?
+        $( $( || ::core::matches!(b, $lo..=$hi) )+ )?
       }
 
       #[inline(always)]

@@ -31,18 +31,18 @@ fn is_binary_digit(byte: u8) -> bool {
 
 #[cfg_attr(not(tarpaulin), inline(always))]
 fn is_octal_digit(byte: u8) -> bool {
-  byte >= b'0' && byte <= b'7'
+  matches!(byte, b'0'..=b'7')
 }
 
 #[cfg_attr(not(tarpaulin), inline(always))]
 fn is_digit(byte: u8) -> bool {
-  byte >= b'0' && byte <= b'9'
+  byte.is_ascii_digit()
 }
 
 #[cfg_attr(not(tarpaulin), inline(always))]
 fn is_hex_digit(byte: u8) -> bool {
   let lower = byte | 0x20;
-  is_digit(byte) || (lower >= b'a' && lower <= b'f')
+  is_digit(byte) || matches!(lower, b'a'..=b'f')
 }
 
 #[cfg_attr(not(tarpaulin), inline(always))]
@@ -51,7 +51,7 @@ fn is_alpha(byte: u8) -> bool {
   // outside the alpha range case-fold to values that fall outside `a..=z`,
   // so a single bounded check covers both cases.
   let lower = byte | 0x20;
-  lower >= b'a' && lower <= b'z'
+  lower.is_ascii_lowercase()
 }
 
 #[cfg_attr(not(tarpaulin), inline(always))]

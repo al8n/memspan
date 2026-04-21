@@ -13,7 +13,7 @@ use lexsimd::skip;
 
 fn ref_is_alpha(b: u8) -> bool {
   let lower = b | 0x20;
-  (b'a'..=b'z').contains(&lower)
+  lower.is_ascii_lowercase()
 }
 fn ref_is_digit(b: u8) -> bool {
   b.is_ascii_digit()
