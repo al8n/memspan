@@ -220,7 +220,7 @@ jobs:
               echo "### ${bench}" >> "$summary"
               echo "" >> "$summary"
               echo "\`\`\`" >> "$summary"
-              grep -E "time:\s*\[|thrpt:\s*\[" "$file" >> "$summary" || echo "No results" >> "$summary"
+              grep -E "time:\s*\[|thrpt:\s*\[" "$file" | grep -v "%" >> "$summary" || echo "No results" >> "$summary"
               echo "\`\`\`" >> "$summary"
               echo "" >> "$summary"
             fi
@@ -310,13 +310,20 @@ jobs:
             const fs = require('fs');
             const summary = fs.readFileSync('BENCHMARK_SUMMARY.md', 'utf8');
 
-            const comment = `## Benchmark Results\n\n${summary}\n\n<details>\n<summary>View detailed results</summary>\n\nDetailed Criterion results have been uploaded as artifacts. Download them from the workflow run to view charts and detailed statistics.\n\n</details>`;
+            const footer = '\n\n<details>\n<summary>View detailed results</summary>\n\nDetailed Criterion results have been uploaded as artifacts. Download them from the workflow run to view charts and detailed statistics.\n\n</details>';
+            const truncNote = '\n\n⚠️ _Results truncated — download the `benchmark-results-combined` artifact for the complete report._';
 
-            github.rest.issues.createComment({
+            let body = `## Benchmark Results\n\n${summary}${footer}`;
+            // GitHub issue comments are capped at 65 536 characters.
+            if (body.length > 65000) {
+              body = `## Benchmark Results\n\n${summary}`.substring(0, 65000 - truncNote.length) + truncNote;
+            }
+
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              body: body
             });
         # Keep soft-failing: if org policy ever tightens further, a
         # failed PR comment shouldn't red-X the workflow (the artifacts
