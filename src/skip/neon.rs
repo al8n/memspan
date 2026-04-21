@@ -509,3 +509,36 @@ where
     len
   }
 }
+
+#[cfg(test)]
+#[cfg(target_feature = "neon")]
+mod tests {
+  use super::*;
+
+  // These tests call the NEON helpers directly with inputs shorter than
+  // NEON_CHUNK_SIZE (16 bytes) to exercise the defensive short-input guards
+  // that the public dispatcher never triggers.
+
+  #[test]
+  fn skip_binary_short_input_defensive() {
+    assert_eq!(skip_binary(b""), 0);
+    assert_eq!(skip_binary(b"010"), 3);
+    assert_eq!(skip_binary(b"012"), 2);
+  }
+
+  #[test]
+  fn skip_until_short_input_defensive() {
+    let hit = skip_until(b"aaa", [b'a', b'b']);
+    assert_eq!(hit, Some(0));
+    let miss = skip_until(b"zzz", [b'a', b'b']);
+    assert_eq!(miss, None);
+  }
+
+  #[test]
+  fn skip_while_short_input_defensive() {
+    let r = skip_while(b"aabz", [b'a', b'b']);
+    assert_eq!(r, 3);
+    let r = skip_while(b"zzz", [b'a', b'b']);
+    assert_eq!(r, 0);
+  }
+}
