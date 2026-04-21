@@ -87,7 +87,7 @@ fn is_ws(b: u8) -> bool {
 #[inline(always)]
 fn is_alpha(b: u8) -> bool {
   let lower = b | 0x20;
-  (b'a'..=b'z').contains(&lower)
+  lower.is_ascii_lowercase()
 }
 #[inline(always)]
 fn is_alphanumeric(b: u8) -> bool {
