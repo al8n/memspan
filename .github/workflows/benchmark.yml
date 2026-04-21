@@ -186,8 +186,12 @@ jobs:
         # `--benches` limits cargo to the registered bench targets.
         # Without it, `cargo bench` also runs the library's `#[test]`
         # harness in release mode, and the lib test harness rejects
-        # `--output-format bencher` with "Unrecognized option".
-        run: cargo bench --benches -- --output-format bencher | tee benchmark-all-${{ matrix.label }}.txt
+        # Criterion flags with "Unrecognized option".
+        # `--quick` cuts sample count to ~10 (vs 100) — fast enough for CI
+        # while still producing stable median estimates and throughput numbers.
+        # `--output-format criterion` is Criterion's native format: shows
+        # confidence intervals, ns/iter, and GiB/s throughput in one block.
+        run: cargo bench --benches -- --quick --output-format criterion | tee benchmark-all-${{ matrix.label }}.txt
         continue-on-error: false
 
       - name: Collect benchmark summary
@@ -216,7 +220,7 @@ jobs:
               echo "### ${bench}" >> "$summary"
               echo "" >> "$summary"
               echo "\`\`\`" >> "$summary"
-              grep "^test " "$file" >> "$summary" || echo "No results" >> "$summary"
+              grep -E "time:\s*\[|thrpt:\s*\[" "$file" >> "$summary" || echo "No results" >> "$summary"
               echo "\`\`\`" >> "$summary"
               echo "" >> "$summary"
             fi
