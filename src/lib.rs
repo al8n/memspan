@@ -478,9 +478,13 @@ macro_rules! skip_class {
           )+ )?
           $( $(
             {
-              let x = i8x16_sub(chunk, i8x16_splat($lo as i8));
-              let in_range =
-                u8x16_lt(x, u8x16_splat(($hi as u8).wrapping_sub($lo as u8).wrapping_add(1)));
+              let width = ($hi as u8).wrapping_sub($lo as u8);
+              let in_range = if width == 0xFF {
+                u8x16_splat(0xFF)
+              } else {
+                let x = i8x16_sub(chunk, i8x16_splat($lo as i8));
+                u8x16_lt(x, u8x16_splat(width.wrapping_add(1)))
+              };
               acc = v128_or(acc, in_range);
             }
           )+ )?

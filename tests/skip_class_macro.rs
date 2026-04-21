@@ -151,6 +151,41 @@ fn punct_ident_miss_position_exhaustive() {
   assert_miss_position_exhaustive(skip_punct_ident, b'9', b'@', "skip_punct_ident");
 }
 
+// ---- full-range edge case (0x00..=0xFF) -----------------------------------
+
+/// Regression test: a range that spans all 256 byte values must match every
+/// byte. The NEON and WASM SIMD128 paths use the `hi - lo + 1` trick, which
+/// wraps to 0 for `0x00..=0xFF`, producing an always-false mask unless the
+/// overflow is special-cased.
+#[test]
+fn full_range_matches_all_bytes() {
+  skipchr::skip_class! {
+    pub fn skip_all_bytes(ranges = [0x00u8..=0xFFu8]);
+  }
+
+  // Single byte — every possible byte value must match.
+  for b in 0u8..=255 {
+    let input = [b];
+    assert_eq!(skip_all_bytes(&input), 1, "byte 0x{b:02x} should match");
+  }
+
+  // Longer inputs that exercise the SIMD main loop and overlap-tail.
+  for len in [16usize, 17, 32, 33, 64, 128] {
+    let input = vec![0u8; len];
+    assert_eq!(
+      skip_all_bytes(&input),
+      len,
+      "all-zero input of len={len}: expected {len}"
+    );
+    let input = vec![0xFFu8; len];
+    assert_eq!(
+      skip_all_bytes(&input),
+      len,
+      "all-0xFF input of len={len}: expected {len}"
+    );
+  }
+}
+
 // ---- generated fn matches built-in equivalents ---------------------------
 
 /// `skip_class!` with the same byte set as our built-in `skip_whitespace`

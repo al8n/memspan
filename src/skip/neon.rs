@@ -26,13 +26,18 @@ pub fn nibble_mask(cmp: uint8x16_t) -> u64 {
 /// (`vsubq` + `vcltq`) instead of the three a `vcgeq` + `vcleq` + `vandq`
 /// triplet would need; the constants are loop-hoisted by `inline(always)`.
 ///
-/// The range width must be ≤ 255 (i.e. `hi - lo` ≤ 254), which is true for
-/// every ASCII class we use it for.
+/// The full-range case `lo = 0x00, hi = 0xFF` is special-cased: the normal
+/// formula would compute `bound = 0xFF + 1 = 0`, making `vcltq_u8(x, 0)`
+/// always false. Instead we return an all-ones mask directly.
 #[doc(hidden)]
 #[cfg_attr(not(tarpaulin), inline(always))]
 pub fn range_mask(chunk: uint8x16_t, lo: u8, hi: u8) -> uint8x16_t {
+  let width = hi.wrapping_sub(lo);
+  if width == 0xFF {
+    return unsafe { vdupq_n_u8(0xFF) };
+  }
   let shifted = unsafe { vsubq_u8(chunk, vdupq_n_u8(lo)) };
-  let bound = unsafe { vdupq_n_u8(hi.wrapping_sub(lo).wrapping_add(1)) };
+  let bound = unsafe { vdupq_n_u8(width.wrapping_add(1)) };
   unsafe { vcltq_u8(shifted, bound) }
 }
 

@@ -16,10 +16,17 @@ use crate::Needles;
 const CHUNK: usize = 16;
 
 /// Tests whether each byte of `chunk` lies in `[lo, hi]` (2 ops, like NEON).
+///
+/// The full-range case `lo = 0x00, hi = 0xFF` is special-cased: the bound
+/// would wrap to 0 and `u8x16_lt(x, 0)` would always be false.
 #[cfg_attr(not(tarpaulin), inline(always))]
 pub(crate) fn range_mask(chunk: v128, lo: u8, hi: u8) -> v128 {
+  let width = hi.wrapping_sub(lo);
+  if width == 0xFF {
+    return u8x16_splat(0xFF);
+  }
   let x = i8x16_sub(chunk, i8x16_splat(lo as i8));
-  u8x16_lt(x, u8x16_splat(hi.wrapping_sub(lo).wrapping_add(1)))
+  u8x16_lt(x, u8x16_splat(width.wrapping_add(1)))
 }
 
 // ── per-class mask functions ─────────────────────────────────────────────────

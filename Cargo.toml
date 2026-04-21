@@ -1,13 +1,14 @@
 [package]
 name = "skipchr"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/al8n/skipchr"
 homepage = "https://github.com/al8n/skipchr"
 documentation = "https://docs.rs/skipchr"
-description = "SIMD-accelerated byte-class scanning for lexers and parsers."
+description = "SIMD-accelerated byte-class scanning for lexers and parsers. Backends: AVX-512, AVX2, SSE4.1, NEON, WASM SIMD128. no_std compatible."
 license = "MIT OR Apache-2.0"
 rust-version = "1.95.0"
+keywords = ["memchr", "simd", "lexer", "parser", "bytes"]
 categories = ["parsing", "text-processing", "no-std", "no-std::no-alloc"]
 
 # We don't have any in-lib `#[bench]` functions; everything runs through the
