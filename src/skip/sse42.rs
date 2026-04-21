@@ -100,6 +100,44 @@ unsafe fn ident_mask(c: __m128i) -> __m128i {
   )
 }
 
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn lower_mask(c: __m128i) -> __m128i {
+  range_mask(c, b'a', b'z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn upper_mask(c: __m128i) -> __m128i {
+  range_mask(c, b'A', b'Z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn ascii_mask(c: __m128i) -> __m128i {
+  range_mask(c, 0x00, 0x7F)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn non_ascii_mask(c: __m128i) -> __m128i {
+  range_mask(c, 0x80, 0xFF)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn ascii_graphic_mask(c: __m128i) -> __m128i {
+  range_mask(c, 0x21, 0x7E)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.1")]
+unsafe fn ascii_control_mask(c: __m128i) -> __m128i {
+  let ctrl = range_mask(c, 0x00, 0x1F);
+  let del = _mm_cmpeq_epi8(c, _mm_set1_epi8(0x7F_u8 as i8));
+  _mm_or_si128(ctrl, del)
+}
+
 /// Extracts a 16-bit match bitmask (1 bit per lane, bit 0 = lane 0).
 #[cfg_attr(not(tarpaulin), inline(always))]
 #[target_feature(enable = "sse2")]
@@ -206,6 +244,135 @@ skip_ascii_class!(
   "sse4.1"
 );
 skip_ascii_class!(skip_ident, prefix_len_ident, ident_mask, "sse4.1");
+skip_ascii_class!(skip_lower, prefix_len_lower, lower_mask, "sse4.1");
+skip_ascii_class!(skip_upper, prefix_len_upper, upper_mask, "sse4.1");
+skip_ascii_class!(skip_ascii, prefix_len_ascii, ascii_mask, "sse4.1");
+skip_ascii_class!(
+  skip_non_ascii,
+  prefix_len_non_ascii,
+  non_ascii_mask,
+  "sse4.1"
+);
+skip_ascii_class!(
+  skip_ascii_graphic,
+  prefix_len_ascii_graphic,
+  ascii_graphic_mask,
+  "sse4.1"
+);
+skip_ascii_class!(
+  skip_ascii_control,
+  prefix_len_ascii_control,
+  ascii_control_mask,
+  "sse4.1"
+);
+
+// ── count_matches / find_last ────────────────────────────────────────────────
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.2")]
+pub(super) unsafe fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < CHUNK {
+    return input
+      .iter()
+      .filter(|&&b| needles.tail_find(core::slice::from_ref(&b)).is_some())
+      .count();
+  }
+
+  let ptr = input.as_ptr();
+  let mut count = 0usize;
+  let mut cur = 0;
+
+  while cur + 2 * CHUNK <= len {
+    let c0 = _mm_loadu_si128(ptr.add(cur) as *const __m128i);
+    let c1 = _mm_loadu_si128(ptr.add(cur + CHUNK) as *const __m128i);
+    let m0 = movemask(needles.eq_any_mask_sse2(c0));
+    let m1 = movemask(needles.eq_any_mask_sse2(c1));
+    count += (m0 & 0xFFFF).count_ones() as usize;
+    count += (m1 & 0xFFFF).count_ones() as usize;
+    cur += 2 * CHUNK;
+  }
+
+  while cur + CHUNK <= len {
+    let chunk = _mm_loadu_si128(ptr.add(cur) as *const __m128i);
+    let bits = movemask(needles.eq_any_mask_sse2(chunk));
+    count += (bits & 0xFFFF).count_ones() as usize;
+    cur += CHUNK;
+  }
+
+  if cur < len {
+    let overlap_start = len - CHUNK;
+    let chunk = _mm_loadu_si128(ptr.add(overlap_start) as *const __m128i);
+    let bits = movemask(needles.eq_any_mask_sse2(chunk));
+    let already = cur - overlap_start;
+    let scan_mask = ((!0u32) << already) & 0xFFFF;
+    count += (bits & scan_mask).count_ones() as usize;
+  }
+
+  count
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[target_feature(enable = "sse4.2")]
+pub(super) unsafe fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < CHUNK {
+    let mut last = None;
+    for (i, &b) in input.iter().enumerate() {
+      if needles.tail_find(core::slice::from_ref(&b)).is_some() {
+        last = Some(i);
+      }
+    }
+    return last;
+  }
+
+  let ptr = input.as_ptr();
+  let mut last: Option<usize> = None;
+  let mut cur = 0;
+
+  while cur + 2 * CHUNK <= len {
+    let c0 = _mm_loadu_si128(ptr.add(cur) as *const __m128i);
+    let c1 = _mm_loadu_si128(ptr.add(cur + CHUNK) as *const __m128i);
+    let b0 = movemask(needles.eq_any_mask_sse2(c0)) & 0xFFFF;
+    let b1 = movemask(needles.eq_any_mask_sse2(c1)) & 0xFFFF;
+    if b0 != 0 {
+      last = Some(cur + (31 - b0.leading_zeros()) as usize);
+    }
+    if b1 != 0 {
+      last = Some(cur + CHUNK + (31 - b1.leading_zeros()) as usize);
+    }
+    cur += 2 * CHUNK;
+  }
+
+  while cur + CHUNK <= len {
+    let chunk = _mm_loadu_si128(ptr.add(cur) as *const __m128i);
+    let bits = movemask(needles.eq_any_mask_sse2(chunk)) & 0xFFFF;
+    if bits != 0 {
+      last = Some(cur + (31 - bits.leading_zeros()) as usize);
+    }
+    cur += CHUNK;
+  }
+
+  if cur < len {
+    let overlap_start = len - CHUNK;
+    let chunk = _mm_loadu_si128(ptr.add(overlap_start) as *const __m128i);
+    let bits = movemask(needles.eq_any_mask_sse2(chunk));
+    let already = cur - overlap_start;
+    let scan_mask = ((!0u32) << already) & 0xFFFF;
+    let hit_bits = bits & scan_mask;
+    if hit_bits != 0 {
+      last = Some(overlap_start + (31 - hit_bits.leading_zeros()) as usize);
+    }
+  }
+
+  last
+}
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 

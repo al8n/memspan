@@ -45,15 +45,16 @@ harness = false
 
 [features]
 default = ["std"]
-alloc = ["memchr/alloc"]
-std = ["memchr/default"]
+alloc = []
+std = []
 
 [dependencies]
-memchr = { version = "2", default-features = false }
+
 
 [dev-dependencies]
 criterion = "0.8"
 tempfile = "3"
+memchr = "2"
 
 [profile.bench]
 opt-level = 3

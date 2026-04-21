@@ -10,6 +10,8 @@ extern crate alloc as std;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub use skip::*;
+
 /// SIMD-accelerated skipping utilities for lexing.
 pub mod skip;
 

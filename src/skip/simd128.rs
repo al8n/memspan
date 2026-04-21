@@ -77,6 +77,38 @@ fn ident_mask(c: v128) -> v128 {
   v128_or(alphanumeric_mask(c), i8x16_eq(c, i8x16_splat(b'_' as i8)))
 }
 
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn lower_mask(c: v128) -> v128 {
+  range_mask(c, b'a', b'z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn upper_mask(c: v128) -> v128 {
+  range_mask(c, b'A', b'Z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_mask(c: v128) -> v128 {
+  range_mask(c, 0x00, 0x7F)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn non_ascii_mask(c: v128) -> v128 {
+  range_mask(c, 0x80, 0xFF)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_graphic_mask(c: v128) -> v128 {
+  range_mask(c, 0x21, 0x7E)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_control_mask(c: v128) -> v128 {
+  let ctrl = range_mask(c, 0x00, 0x1F);
+  let del = i8x16_eq(c, i8x16_splat(0x7F_u8 as i8));
+  v128_or(ctrl, del)
+}
+
 /// Extracts a 16-bit bitmask (1 bit per lane) from a 0xFF/0x00 mask vector.
 #[cfg_attr(not(tarpaulin), inline(always))]
 fn bitmask(m: v128) -> u32 {
@@ -161,6 +193,126 @@ skip_ascii_class!(
 );
 skip_ascii_class!(skip_ident_start, prefix_len_ident_start, ident_start_mask);
 skip_ascii_class!(skip_ident, prefix_len_ident, ident_mask);
+skip_ascii_class!(skip_lower, prefix_len_lower, lower_mask);
+skip_ascii_class!(skip_upper, prefix_len_upper, upper_mask);
+skip_ascii_class!(skip_ascii, prefix_len_ascii, ascii_mask);
+skip_ascii_class!(skip_non_ascii, prefix_len_non_ascii, non_ascii_mask);
+skip_ascii_class!(
+  skip_ascii_graphic,
+  prefix_len_ascii_graphic,
+  ascii_graphic_mask
+);
+skip_ascii_class!(
+  skip_ascii_control,
+  prefix_len_ascii_control,
+  ascii_control_mask
+);
+
+// ── count_matches / find_last ────────────────────────────────────────────────
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub(super) fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < CHUNK {
+    return input
+      .iter()
+      .filter(|&&b| needles.tail_find(core::slice::from_ref(&b)).is_some())
+      .count();
+  }
+
+  let ptr = input.as_ptr();
+  let mut count = 0usize;
+  let mut cur = 0;
+
+  while cur + 2 * CHUNK <= len {
+    let c0 = unsafe { v128_load(ptr.add(cur) as *const v128) };
+    let c1 = unsafe { v128_load(ptr.add(cur + CHUNK) as *const v128) };
+    let m0 = bitmask(needles.eq_any_mask_simd128(c0));
+    let m1 = bitmask(needles.eq_any_mask_simd128(c1));
+    count += (m0 & 0xFFFF).count_ones() as usize;
+    count += (m1 & 0xFFFF).count_ones() as usize;
+    cur += 2 * CHUNK;
+  }
+
+  while cur + CHUNK <= len {
+    let chunk = unsafe { v128_load(ptr.add(cur) as *const v128) };
+    let bits = bitmask(needles.eq_any_mask_simd128(chunk));
+    count += (bits & 0xFFFF).count_ones() as usize;
+    cur += CHUNK;
+  }
+
+  if cur < len {
+    let overlap_start = len - CHUNK;
+    let chunk = unsafe { v128_load(ptr.add(overlap_start) as *const v128) };
+    let bits = bitmask(needles.eq_any_mask_simd128(chunk));
+    let already = cur - overlap_start;
+    let scan_mask = ((!0u32) << already) & 0xFFFF;
+    count += (bits & scan_mask).count_ones() as usize;
+  }
+
+  count
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub(super) fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < CHUNK {
+    let mut last = None;
+    for (i, &b) in input.iter().enumerate() {
+      if needles.tail_find(core::slice::from_ref(&b)).is_some() {
+        last = Some(i);
+      }
+    }
+    return last;
+  }
+
+  let ptr = input.as_ptr();
+  let mut last: Option<usize> = None;
+  let mut cur = 0;
+
+  while cur + 2 * CHUNK <= len {
+    let c0 = unsafe { v128_load(ptr.add(cur) as *const v128) };
+    let c1 = unsafe { v128_load(ptr.add(cur + CHUNK) as *const v128) };
+    let b0 = bitmask(needles.eq_any_mask_simd128(c0)) & 0xFFFF;
+    let b1 = bitmask(needles.eq_any_mask_simd128(c1)) & 0xFFFF;
+    if b0 != 0 {
+      last = Some(cur + (31 - b0.leading_zeros()) as usize);
+    }
+    if b1 != 0 {
+      last = Some(cur + CHUNK + (31 - b1.leading_zeros()) as usize);
+    }
+    cur += 2 * CHUNK;
+  }
+
+  while cur + CHUNK <= len {
+    let chunk = unsafe { v128_load(ptr.add(cur) as *const v128) };
+    let bits = bitmask(needles.eq_any_mask_simd128(chunk)) & 0xFFFF;
+    if bits != 0 {
+      last = Some(cur + (31 - bits.leading_zeros()) as usize);
+    }
+    cur += CHUNK;
+  }
+
+  if cur < len {
+    let overlap_start = len - CHUNK;
+    let chunk = unsafe { v128_load(ptr.add(overlap_start) as *const v128) };
+    let bits = bitmask(needles.eq_any_mask_simd128(chunk));
+    let already = cur - overlap_start;
+    let scan_mask = ((!0u32) << already) & 0xFFFF;
+    let hit_bits = bits & scan_mask;
+    if hit_bits != 0 {
+      last = Some(overlap_start + (31 - hit_bits.leading_zeros()) as usize);
+    }
+  }
+
+  last
+}
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 

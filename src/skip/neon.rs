@@ -104,6 +104,38 @@ fn ident_mask(chunk: uint8x16_t) -> uint8x16_t {
   unsafe { vorrq_u8(alphanum, underscore) }
 }
 
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn lower_mask(chunk: uint8x16_t) -> uint8x16_t {
+  range_mask(chunk, b'a', b'z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn upper_mask(chunk: uint8x16_t) -> uint8x16_t {
+  range_mask(chunk, b'A', b'Z')
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_mask(chunk: uint8x16_t) -> uint8x16_t {
+  range_mask(chunk, 0x00, 0x7F)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn non_ascii_mask(chunk: uint8x16_t) -> uint8x16_t {
+  range_mask(chunk, 0x80, 0xFF)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_graphic_mask(chunk: uint8x16_t) -> uint8x16_t {
+  range_mask(chunk, 0x21, 0x7E)
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+fn ascii_control_mask(chunk: uint8x16_t) -> uint8x16_t {
+  let ctrl = range_mask(chunk, 0x00, 0x1F);
+  let del = unsafe { vceqq_u8(chunk, vdupq_n_u8(0x7F)) };
+  unsafe { vorrq_u8(ctrl, del) }
+}
+
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident) => {
     #[cfg_attr(not(tarpaulin), inline(always))]
@@ -193,6 +225,125 @@ skip_ascii_class!(
 );
 skip_ascii_class!(skip_ident_start, prefix_len_ident_start, ident_start_mask);
 skip_ascii_class!(skip_ident, prefix_len_ident, ident_mask);
+skip_ascii_class!(skip_lower, prefix_len_lower, lower_mask);
+skip_ascii_class!(skip_upper, prefix_len_upper, upper_mask);
+skip_ascii_class!(skip_ascii, prefix_len_ascii, ascii_mask);
+skip_ascii_class!(skip_non_ascii, prefix_len_non_ascii, non_ascii_mask);
+skip_ascii_class!(
+  skip_ascii_graphic,
+  prefix_len_ascii_graphic,
+  ascii_graphic_mask
+);
+skip_ascii_class!(
+  skip_ascii_control,
+  prefix_len_ascii_control,
+  ascii_control_mask
+);
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg(target_feature = "neon")]
+pub(super) fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < NEON_CHUNK_SIZE {
+    return input
+      .iter()
+      .filter(|&&b| needles.tail_find(core::slice::from_ref(&b)).is_some())
+      .count();
+  }
+
+  let ptr = input.as_ptr();
+  let mut count = 0usize;
+  let mut cur = 0;
+
+  while cur + 2 * NEON_CHUNK_SIZE <= len {
+    let c0 = unsafe { vld1q_u8(ptr.add(cur)) };
+    let c1 = unsafe { vld1q_u8(ptr.add(cur + NEON_CHUNK_SIZE)) };
+    let m0 = needles.eq_any_mask_neon(c0);
+    let m1 = needles.eq_any_mask_neon(c1);
+    count += (nibble_mask(m0).count_ones() / 4) as usize;
+    count += (nibble_mask(m1).count_ones() / 4) as usize;
+    cur += 2 * NEON_CHUNK_SIZE;
+  }
+
+  while cur + NEON_CHUNK_SIZE <= len {
+    let chunk = unsafe { vld1q_u8(ptr.add(cur)) };
+    let cmp = needles.eq_any_mask_neon(chunk);
+    count += (nibble_mask(cmp).count_ones() / 4) as usize;
+    cur += NEON_CHUNK_SIZE;
+  }
+
+  if cur < len {
+    let overlap_start = len - NEON_CHUNK_SIZE;
+    let chunk = unsafe { vld1q_u8(ptr.add(overlap_start)) };
+    let cmp = needles.eq_any_mask_neon(chunk);
+    let already = cur - overlap_start;
+    let lane_mask = (!0u64) << (already * 4);
+    count += (nibble_mask(cmp) & lane_mask).count_ones() as usize / 4;
+  }
+
+  count
+}
+
+#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg(target_feature = "neon")]
+pub(super) fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
+where
+  Nd: Needles,
+{
+  let len = input.len();
+  if len < NEON_CHUNK_SIZE {
+    let mut last = None;
+    for (i, &b) in input.iter().enumerate() {
+      if needles.tail_find(core::slice::from_ref(&b)).is_some() {
+        last = Some(i);
+      }
+    }
+    return last;
+  }
+
+  let ptr = input.as_ptr();
+  let mut last: Option<usize> = None;
+  let mut cur = 0;
+
+  while cur + 2 * NEON_CHUNK_SIZE <= len {
+    let c0 = unsafe { vld1q_u8(ptr.add(cur)) };
+    let c1 = unsafe { vld1q_u8(ptr.add(cur + NEON_CHUNK_SIZE)) };
+    let b0 = nibble_mask(needles.eq_any_mask_neon(c0));
+    let b1 = nibble_mask(needles.eq_any_mask_neon(c1));
+    if b0 != 0 {
+      last = Some(cur + (15 - b0.leading_zeros() / 4) as usize);
+    }
+    if b1 != 0 {
+      last = Some(cur + NEON_CHUNK_SIZE + (15 - b1.leading_zeros() / 4) as usize);
+    }
+    cur += 2 * NEON_CHUNK_SIZE;
+  }
+
+  while cur + NEON_CHUNK_SIZE <= len {
+    let chunk = unsafe { vld1q_u8(ptr.add(cur)) };
+    let bits = nibble_mask(needles.eq_any_mask_neon(chunk));
+    if bits != 0 {
+      last = Some(cur + (15 - bits.leading_zeros() / 4) as usize);
+    }
+    cur += NEON_CHUNK_SIZE;
+  }
+
+  if cur < len {
+    let overlap_start = len - NEON_CHUNK_SIZE;
+    let chunk = unsafe { vld1q_u8(ptr.add(overlap_start)) };
+    let already = cur - overlap_start;
+    let lane_mask = (!0u64) << (already * 4);
+    let bits = nibble_mask(needles.eq_any_mask_neon(chunk)) & lane_mask;
+    if bits != 0 {
+      last = Some(overlap_start + (15 - bits.leading_zeros() / 4) as usize);
+    }
+  }
+
+  last
+}
 
 #[cfg_attr(not(tarpaulin), inline(always))]
 #[cfg(target_feature = "neon")]
