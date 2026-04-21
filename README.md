@@ -137,37 +137,86 @@ assert_eq!(skip_punct_ident(b"hello-world! 42"), 12);
 
 ## Benchmarks
 
-Throughput at 4096-byte input, measured on GitHub Actions runners (2026-04-21).
+Throughput in GiB/s across input sizes, measured on GitHub Actions runners (2026-04-22, `--quick` Criterion runs).
+Environments: aarch64 — macOS-latest (ARM64, NEON); x86\_64 — ubuntu-latest (X64, runtime AVX2 detection).
 
-### Built-in ASCII class functions
+### aarch64 — NEON
 
-| Function | aarch64 NEON | aarch64 scalar | x86\_64 AVX2 | x86\_64 scalar |
-|---|---|---|---|---|
-| `skip_binary` | 24.8 GiB/s | 2.4 GiB/s | 59.1 GiB/s | 3.0 GiB/s |
-| `skip_octal_digits` | 39.9 GiB/s | 2.4 GiB/s | 62.1 GiB/s | 3.0 GiB/s |
-| `skip_digits` | 39.3 GiB/s | 2.5 GiB/s | 63.4 GiB/s | 3.0 GiB/s |
-| `skip_hex_digits` | 21.7 GiB/s | 1.4 GiB/s | 33.2 GiB/s | 1.5 GiB/s |
-| `skip_alpha` | 35.1 GiB/s | 1.9 GiB/s | 62.4 GiB/s | 1.8 GiB/s |
-| `skip_alphanumeric` | 21.7 GiB/s | 1.6 GiB/s | 31.9 GiB/s | 1.5 GiB/s |
-| `skip_ident_start` | 23.9 GiB/s | 1.7 GiB/s | 40.0 GiB/s | 1.5 GiB/s |
-| `skip_ident` | 17.8 GiB/s | 1.3 GiB/s | 28.5 GiB/s | 1.5 GiB/s |
-| `skip_whitespace` | 16.5 GiB/s | 1.5 GiB/s | 38.4 GiB/s | 2.0 GiB/s |
+| Function | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| `skip_binary` | 1.9 | 7.0 | 10.9 | 23.1 | 39.5 | 34.9 |
+| `skip_octal_digits` | 2.2 | 7.3 | 12.3 | 27.5 | 41.0 | 45.9 |
+| `skip_digits` | 2.2 | 7.3 | 10.6 | 26.7 | 39.9 | 44.8 |
+| `skip_hex_digits` | 1.8 | 4.1 | 6.4 | 14.8 | 21.8 | 23.5 |
+| `skip_alpha` | 2.3 | 5.8 | 10.4 | 23.1 | 32.6 | 37.6 |
+| `skip_alphanumeric` | 1.8 | 4.3 | 6.8 | 14.9 | 19.7 | 23.1 |
+| `skip_ident_start` | 1.5 | 3.4 | 6.1 | 12.5 | 24.4 | 23.3 |
+| `skip_ident` | 1.3 | 3.8 | 5.6 | 13.2 | 16.6 | 17.8 |
+| `skip_whitespace` | 1.9 | 4.5 | 7.0 | 15.2 | 20.2 | 19.0 |
 
-### Generic operations
+### aarch64 — scalar fallback
 
-| Function | aarch64 NEON | aarch64 scalar | x86\_64 AVX2 | x86\_64 scalar |
-|---|---|---|---|---|
-| `skip_until` | 12.9 GiB/s | 1.5 GiB/s | 26.3 GiB/s | 1.0 GiB/s |
-| `skip_while` | 15.2 GiB/s | 2.0 GiB/s | 26.2 GiB/s | 1.2 GiB/s |
+| Function | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| `skip_binary` | 2.3 | 2.1 | 1.9 | 1.8 | 2.0 | 2.0 |
+| `skip_octal_digits` | 1.7 | 2.2 | 2.0 | 1.9 | 2.1 | 2.1 |
+| `skip_digits` | 1.9 | 2.3 | 2.2 | 2.3 | 2.4 | 2.2 |
+| `skip_hex_digits` | 1.7 | 1.4 | 1.5 | 1.5 | 1.2 | 1.3 |
+| `skip_alpha` | 2.3 | 2.5 | 2.2 | 1.9 | 1.9 | 1.9 |
+| `skip_alphanumeric` | 1.8 | 1.8 | 1.7 | 1.5 | 1.6 | 1.6 |
+| `skip_ident_start` | 1.9 | 1.9 | 1.9 | 1.7 | 1.9 | 2.0 |
+| `skip_ident` | 1.5 | 1.6 | 1.5 | 1.5 | 1.6 | 1.6 |
+| `skip_whitespace` | 1.4 | 1.6 | 1.8 | 1.6 | 1.8 | 1.8 |
+
+### x86\_64 — AVX2
+
+| Function | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| `skip_binary` | 2.0 | 2.5 | 4.7 | 15.8 | 60.7 | 88.4 |
+| `skip_octal_digits` | 2.0 | 2.5 | 4.7 | 16.3 | 62.3 | 62.8 |
+| `skip_digits` | 2.0 | 2.5 | 4.7 | 16.3 | 63.2 | 80.9 |
+| `skip_hex_digits` | 1.4 | 1.7 | 3.1 | 10.3 | 33.2 | 38.3 |
+| `skip_alpha` | 2.0 | 2.5 | 4.3 | 14.6 | 59.9 | 68.6 |
+| `skip_alphanumeric` | 1.5 | 1.7 | 3.2 | 10.6 | 31.6 | 37.5 |
+| `skip_ident_start` | 1.5 | 1.7 | 3.3 | 11.1 | 39.7 | 46.3 |
+| `skip_ident` | 1.8 | 1.6 | 2.9 | 9.9 | 28.4 | 33.8 |
+| `skip_whitespace` | 1.9 | 2.5 | 4.4 | 13.7 | 38.2 | 46.5 |
+
+### x86\_64 — scalar fallback
+
+| Function | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| `skip_binary` | 2.3 | 2.5 | 2.1 | 2.7 | 3.0 | 3.0 |
+| `skip_octal_digits` | 2.2 | 2.4 | 2.1 | 2.6 | 3.0 | 3.0 |
+| `skip_digits` | 2.1 | 2.5 | 2.1 | 2.7 | 3.0 | 3.0 |
+| `skip_hex_digits` | 1.4 | 1.5 | 1.2 | 1.4 | 1.5 | 1.5 |
+| `skip_alpha` | 2.1 | 1.8 | 1.8 | 1.7 | 1.8 | 1.8 |
+| `skip_alphanumeric` | 1.3 | 1.4 | 1.2 | 1.4 | 1.5 | 1.5 |
+| `skip_ident_start` | 1.3 | 1.4 | 1.2 | 1.4 | 1.5 | 1.5 |
+| `skip_ident` | 1.3 | 1.4 | 1.3 | 1.4 | 1.5 | 1.5 |
+| `skip_whitespace` | 1.8 | 1.5 | 1.3 | 1.9 | 2.0 | 2.0 |
+
+### Generic dispatch (`skip_until` / `skip_while`)
+
+| Function | Backend | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `skip_until` | aarch64 NEON | 0.5 | 1.1 | 2.5 | 7.1 | 15.5 | 17.0 |
+| `skip_until` | aarch64 scalar | 1.4 | 1.6 | 1.5 | 1.4 | 1.6 | 1.6 |
+| `skip_until` | x86\_64 AVX2 | 0.5 | 0.7 | 1.3 | 4.9 | 25.8 | 36.9 |
+| `skip_until` | x86\_64 scalar | 0.9 | 0.9 | 0.9 | 1.0 | 1.0 | 1.0 |
+| `skip_while` | aarch64 NEON | 0.7 | 1.5 | 3.0 | 8.6 | 16.3 | 16.7 |
+| `skip_while` | aarch64 scalar | 1.7 | 1.9 | 2.0 | 1.9 | 2.0 | 2.1 |
+| `skip_while` | x86\_64 AVX2 | 0.7 | 0.8 | 1.4 | 5.2 | 26.6 | 37.1 |
+| `skip_while` | x86\_64 scalar | 1.1 | 1.1 | 1.0 | 1.1 | 1.2 | 1.2 |
 
 ### `skip_class!` macro vs `skip_while`
 
-| | aarch64 NEON | x86\_64 AVX2 |
-|---|---|---|
-| `skip_class!` | 14.2 GiB/s | 36.0 GiB/s |
-| `skip_while` (array) | 15.1 GiB/s | 26.8 GiB/s |
-
-**Environments:** aarch64 — macOS-latest runner (ARM64, NEON); x86\_64 — ubuntu-latest runner (X64, runtime AVX2 detection). All runs with `RUSTFLAGS=""`.
+| | Backend | 16 B | 32 B | 64 B | 256 B | 4 KiB | 64 KiB |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `skip_class!` macro | aarch64 NEON | 2.0 | 4.4 | 6.9 | 13.5 | 16.7 | 18.2 |
+| `skip_while` (array) | aarch64 NEON | 0.7 | 1.4 | 3.0 | 8.8 | 15.1 | 17.6 |
+| `skip_class!` macro | x86\_64 AVX2 | 1.7 | 2.4 | 4.3 | 13.6 | 35.8 | 41.7 |
+| `skip_while` (array) | x86\_64 AVX2 | 0.7 | 0.8 | 1.4 | 5.2 | 26.4 | 37.8 |
 
 ## Features
 
