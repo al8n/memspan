@@ -1,25 +1,55 @@
 [package]
-name = "template-rs"
+name = "lexsimd"
 version = "0.0.0"
-edition = "2021"
-repository = "https://github.com/al8n/template-rs"
-homepage = "https://github.com/al8n/template-rs"
-documentation = "https://docs.rs/template-rs"
-description = "A template for creating Rust open-source repo on GitHub"
+edition = "2024"
+repository = "https://github.com/al8n/lexsimd"
+homepage = "https://github.com/al8n/lexsimd"
+documentation = "https://docs.rs/lexsimd"
+description = "A SIMD-accelerated lexer utilities for Rust."
 license = "MIT OR Apache-2.0"
-rust-version = "1.73"
+rust-version = "1.95.0"
+categories = ["parsing", "text-processing", "no-std", "no-std::no-alloc"]
+
+# We don't have any in-lib `#[bench]` functions; everything runs through the
+# explicit criterion bench targets below. Disabling the default lib bench
+# harness lets `cargo bench --benches` pass criterion-specific flags
+# (`--quick`, `--output-format bencher`) without the libtest harness
+# rejecting them as "Unrecognized option".
+[lib]
+bench = false
 
 [[bench]]
-path = "benches/foo.rs"
-name = "foo"
+path = "benches/skip_until.rs"
+name = "skip_until"
+harness = false
+
+[[bench]]
+path = "benches/skip_while.rs"
+name = "skip_while"
+harness = false
+
+[[bench]]
+path = "benches/skip_ascii_class.rs"
+name = "skip_ascii_class"
+harness = false
+
+[[bench]]
+path = "benches/skip_lexer_class.rs"
+name = "skip_lexer_class"
+harness = false
+
+[[bench]]
+path = "benches/skip_class_macro.rs"
+name = "skip_class_macro"
 harness = false
 
 [features]
 default = ["std"]
-alloc = []
-std = []
+alloc = ["memchr/alloc"]
+std = ["memchr/default"]
 
 [dependencies]
+memchr = { version = "2", default-features = false }
 
 [dev-dependencies]
 criterion = "0.8"
@@ -45,4 +75,11 @@ single_use_lifetimes = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(all_tests)',
   'cfg(tarpaulin)',
+  # Testing / coverage helpers. These are set via `RUSTFLAGS='--cfg ...'`
+  # in CI to force the dispatcher down a specific path so lower‑tier
+  # kernels and the scalar fallback get coverage on runners that would
+  # otherwise always pick the top tier.
+  'cfg(lexsimd_force_scalar)',
+  'cfg(lexsimd_disable_avx512)',
+  'cfg(lexsimd_disable_avx2)',
 ] }
