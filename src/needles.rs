@@ -138,7 +138,7 @@ pub trait Needles: sealed::Sealed {
 
   /// Returns a WASM SIMD128 byte mask (`v128`) where matching lanes are `0xFF`
   /// and non-matching lanes are `0x00`.
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128;
 }
 
@@ -194,7 +194,7 @@ where
     (**self).eq_any_mask_avx512(chunk)
   }
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
   #[cfg_attr(not(tarpaulin), inline(always))]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     (**self).eq_any_mask_simd128(chunk)
@@ -263,7 +263,7 @@ impl Needles for u8 {
     }
   }
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
   #[cfg_attr(not(tarpaulin), inline(always))]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     use core::arch::wasm32::*;
@@ -430,7 +430,7 @@ impl Needles for [u8] {
     }
   }
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
   #[cfg_attr(not(tarpaulin), inline(always))]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     match self {
@@ -528,7 +528,7 @@ impl<const N: usize> Needles for [u8; N] {
     unsafe { arch::x86::eq_any_mask_const_avx512(chunk, *self) }
   }
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
   #[cfg_attr(not(tarpaulin), inline(always))]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     arch::wasm32::eq_any_mask_const_simd128(chunk, *self)

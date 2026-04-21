@@ -9,6 +9,9 @@ pub mod aarch64;
 pub mod x86;
 
 /// Needles extension trait for wasm32.
-#[cfg(target_arch = "wasm32")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "wasm32")))]
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(all(target_arch = "wasm32", target_feature = "simd128")))
+)]
 pub mod wasm32;

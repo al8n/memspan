@@ -21,7 +21,7 @@ pub(crate) mod avx2;
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod avx512;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 pub(crate) mod simd128;
 
 // ── scalar predicates ────────────────────────────────────────────────────────
@@ -328,6 +328,7 @@ where
     target_arch = "wasm32" => {
       if needles.needle_count() == 0 { return None; }
       if input.len() < 16 { return needles.tail_find(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_until(input, needles); }
       needles.tail_find(input)
     }
@@ -359,6 +360,7 @@ where
     target_arch = "wasm32" => {
       let count = needles.needle_count();
       if count <= 1 || input.len() < 16 { return needles.prefix_len(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_while(input, needles); }
       needles.prefix_len(input)
     }
@@ -382,6 +384,7 @@ pub fn skip_binary(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_binary(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_binary(input); }
       prefix_len_binary(input)
     }
@@ -403,6 +406,7 @@ pub fn skip_digits(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_digits(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_digits(input); }
       prefix_len_digits(input)
     }
@@ -424,6 +428,7 @@ pub fn skip_hex_digits(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_hex_digits(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_hex_digits(input); }
       prefix_len_hex_digits(input)
     }
@@ -445,6 +450,7 @@ pub fn skip_octal_digits(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_octal_digits(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_octal_digits(input); }
       prefix_len_octal_digits(input)
     }
@@ -466,6 +472,7 @@ pub fn skip_whitespace(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_whitespace(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_whitespace(input); }
       prefix_len_whitespace(input)
     }
@@ -487,6 +494,7 @@ pub fn skip_alpha(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_alpha(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_alpha(input); }
       prefix_len_alpha(input)
     }
@@ -508,6 +516,7 @@ pub fn skip_alphanumeric(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_alphanumeric(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_alphanumeric(input); }
       prefix_len_alphanumeric(input)
     }
@@ -529,6 +538,7 @@ pub fn skip_ident_start(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_ident_start(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_ident_start(input); }
       prefix_len_ident_start(input)
     }
@@ -550,6 +560,7 @@ pub fn skip_ident(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_ident(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_ident(input); }
       prefix_len_ident(input)
     }
@@ -571,6 +582,7 @@ pub fn skip_lower(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_lower(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_lower(input); }
       prefix_len_lower(input)
     }
@@ -592,6 +604,7 @@ pub fn skip_upper(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_upper(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_upper(input); }
       prefix_len_upper(input)
     }
@@ -613,6 +626,7 @@ pub fn skip_ascii(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_ascii(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_ascii(input); }
       prefix_len_ascii(input)
     }
@@ -634,6 +648,7 @@ pub fn skip_non_ascii(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_non_ascii(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_non_ascii(input); }
       prefix_len_non_ascii(input)
     }
@@ -656,6 +671,7 @@ pub fn skip_ascii_graphic(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_ascii_graphic(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_ascii_graphic(input); }
       prefix_len_ascii_graphic(input)
     }
@@ -678,6 +694,7 @@ pub fn skip_ascii_control(input: &[u8]) -> usize {
     }
     target_arch = "wasm32" => {
       if input.len() < 16 { return prefix_len_ascii_control(input); }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::skip_ascii_control(input); }
       prefix_len_ascii_control(input)
     }
@@ -705,6 +722,7 @@ where
       dispatch_count_matches_x86(input, needles)
     }
     target_arch = "wasm32" => {
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::count_matches(input, needles); }
       count_matches_scalar(input, needles)
     }
@@ -735,6 +753,7 @@ where
     }
     target_arch = "wasm32" => {
       if needles.needle_count() == 0 { return None; }
+      #[cfg(target_feature = "simd128")]
       if crate::utils::simd128_available() { return simd128::find_last(input, needles); }
       find_last_scalar(input, needles)
     }
