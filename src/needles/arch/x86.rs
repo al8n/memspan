@@ -10,7 +10,7 @@ use core::arch::x86_64::*;
 ///
 /// Iterates over needles with an OR-accumulator. Used for slices longer than
 /// 8 elements where a const-unrolled tree is not available.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse2")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_sse2(
   chunk: __m128i,
@@ -24,7 +24,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_sse2(
 }
 
 /// Const-dispatch variant: unrolled balanced OR tree for 0–8 needles.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse2")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_sse2<const N: usize>(
   chunk: __m128i,
@@ -84,7 +84,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_const_sse2<const N: usize>(
 /// Returns a `__m256i` where each byte lane is `0xFF` if the byte in `chunk`
 /// matches any needle.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx2(
   chunk: __m256i,
@@ -99,7 +99,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx2(
 
 /// Const-dispatch variant for AVX2: unrolled balanced OR tree for 0–8 needles.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_avx2<const N: usize>(
   chunk: __m256i,
@@ -160,7 +160,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_const_avx2<const N: usize>(
 /// matches any needle. Uses `_mm512_cmpeq_epi8_mask` which returns the mask
 /// directly — no `movemask` conversion needed.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx512bw")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx512(chunk: __m512i, needles: &[u8]) -> u64 {
   let mut acc: u64 = 0;
@@ -172,7 +172,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx512(chunk: __m512i, need
 
 /// Const-dispatch variant for AVX-512BW: unrolled balanced OR for 0–8 needles.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx512bw")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_avx512<const N: usize>(
   chunk: __m512i,

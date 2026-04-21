@@ -151,8 +151,8 @@ macro_rules! skip_ascii_class {
       let mut cur = CHUNK;
 
       while cur + 2 * CHUNK <= len {
-        let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
-        let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<i32>());
+        let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
+        let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<__m512i>());
         let m0 = $mask(c0);
         let m1 = $mask(c1);
         // All-ones means all match; any zero means a non-match in m0|m1 position.
@@ -168,7 +168,7 @@ macro_rules! skip_ascii_class {
       }
 
       while cur + CHUNK <= len {
-        let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
+        let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
         let bits = $mask(chunk);
         if bits != !0u64 {
           return cur + (!bits).trailing_zeros() as usize;
@@ -181,7 +181,7 @@ macro_rules! skip_ascii_class {
       }
 
       let overlap_start = len - CHUNK;
-      let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<i32>());
+      let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<__m512i>());
       let bits = $mask(chunk);
       let already = cur - overlap_start;
       let scan_mask = (!0u64) << already;
@@ -244,8 +244,8 @@ where
   let mut cur = 0;
 
   while cur + 2 * CHUNK <= len {
-    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
-    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<i32>());
+    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
+    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<__m512i>());
     let m0 = needles.eq_any_mask_avx512(c0);
     let m1 = needles.eq_any_mask_avx512(c1);
     count += m0.count_ones() as usize;
@@ -254,7 +254,7 @@ where
   }
 
   while cur + CHUNK <= len {
-    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     count += bits.count_ones() as usize;
     cur += CHUNK;
@@ -262,7 +262,7 @@ where
 
   if cur < len {
     let overlap_start = len - CHUNK;
-    let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     let already = cur - overlap_start;
     let scan_mask = (!0u64) << already;
@@ -294,8 +294,8 @@ where
   let mut cur = 0;
 
   while cur + 2 * CHUNK <= len {
-    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
-    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<i32>());
+    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
+    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<__m512i>());
     let b0 = needles.eq_any_mask_avx512(c0);
     let b1 = needles.eq_any_mask_avx512(c1);
     if b0 != 0 {
@@ -308,7 +308,7 @@ where
   }
 
   while cur + CHUNK <= len {
-    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     if bits != 0 {
       last = Some(cur + (63 - bits.leading_zeros()) as usize);
@@ -318,7 +318,7 @@ where
 
   if cur < len {
     let overlap_start = len - CHUNK;
-    let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     let already = cur - overlap_start;
     let scan_mask = (!0u64) << already;
@@ -353,8 +353,8 @@ where
   let mut cur = CHUNK;
 
   while cur + 2 * CHUNK <= len {
-    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
-    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<i32>());
+    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
+    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<__m512i>());
     let m0 = needles.eq_any_mask_avx512(c0);
     let m1 = needles.eq_any_mask_avx512(c1);
     let combined = m0 | m1;
@@ -368,7 +368,7 @@ where
   }
 
   while cur + CHUNK <= len {
-    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     if bits != 0 {
       return Some(cur + bits.trailing_zeros() as usize);
@@ -381,7 +381,7 @@ where
   }
 
   let overlap_start = len - CHUNK;
-  let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<i32>());
+  let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<__m512i>());
   let bits = needles.eq_any_mask_avx512(chunk);
   let already = cur - overlap_start;
   let scan_mask = (!0u64) << already;
@@ -414,8 +414,8 @@ where
   let mut cur = CHUNK;
 
   while cur + 2 * CHUNK <= len {
-    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
-    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<i32>());
+    let c0 = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
+    let c1 = _mm512_loadu_si512(ptr.add(cur + CHUNK).cast::<__m512i>());
     let m0 = needles.eq_any_mask_avx512(c0);
     let m1 = needles.eq_any_mask_avx512(c1);
     let combined = m0 & m1;
@@ -429,7 +429,7 @@ where
   }
 
   while cur + CHUNK <= len {
-    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<i32>());
+    let chunk = _mm512_loadu_si512(ptr.add(cur).cast::<__m512i>());
     let bits = needles.eq_any_mask_avx512(chunk);
     if bits != !0u64 {
       return cur + (!bits).trailing_zeros() as usize;
@@ -442,7 +442,7 @@ where
   }
 
   let overlap_start = len - CHUNK;
-  let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<i32>());
+  let chunk = _mm512_loadu_si512(ptr.add(overlap_start).cast::<__m512i>());
   let bits = needles.eq_any_mask_avx512(chunk);
   let already = cur - overlap_start;
   let scan_mask = (!0u64) << already;
