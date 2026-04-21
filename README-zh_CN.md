@@ -39,8 +39,8 @@ assert_eq!(comma, Some(8));
 
 | 架构 | 分发顺序 |
 |---|---|
-| x86\_64 | AVX-512BW → AVX2 → SSE4.1 → 标量 |
-| x86 | SSE4.1 → 标量 |
+| x86\_64 | AVX-512BW → AVX2 → SSE4.2 → 标量 |
+| x86 | SSE4.2 → 标量 |
 | aarch64 | NEON → 标量 |
 | wasm32 | SIMD128 → 标量 |
 | 其他 | 标量 |

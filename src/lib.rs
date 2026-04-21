@@ -43,9 +43,9 @@ pub mod __macro {
   #[cfg(target_arch = "aarch64")]
   pub use core::arch::aarch64::{uint8x16_t, vceqq_u8, vdupq_n_u8, vld1q_u8, vorrq_u8};
 
-  // ── x86 / SSE4.1 ─────────────────────────────────────────────────────────
+  // ── x86 / SSE4.2 ─────────────────────────────────────────────────────────
 
-  /// Width of the SSE4.1 and WASM SIMD128 chunks.
+  /// Width of the SSE4.2 and WASM SIMD128 chunks.
   pub const SSE_CHUNK_SIZE: usize = 16;
 
   #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -88,7 +88,7 @@ pub mod __macro {
 /// Define a custom `skip_*` function for an ASCII byte class, generating the
 /// same scalar fallback + SIMD loop the built-in [`skip::skip_digits`],
 /// [`skip::skip_whitespace`], etc. use internally. On x86/x86_64 the
-/// generated function dispatches through AVX2 (256-bit) → SSE4.1 (128-bit)
+/// generated function dispatches through AVX2 (256-bit) → SSE4.2 (128-bit)
 /// → scalar; on aarch64 through NEON; on wasm32 through SIMD128.
 ///
 /// The generated function returns the length of the leading prefix where

@@ -41,8 +41,8 @@ available SIMD backend at runtime:
 
 | Architecture | Dispatch order |
 |---|---|
-| x86\_64 | AVX-512BW → AVX2 → SSE4.1 → scalar |
-| x86 | SSE4.1 → scalar |
+| x86\_64 | AVX-512BW → AVX2 → SSE4.2 → scalar |
+| x86 | SSE4.2 → scalar |
 | aarch64 | NEON → scalar |
 | wasm32 | SIMD128 → scalar |
 | other | scalar |
