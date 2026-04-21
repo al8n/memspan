@@ -1,17 +1,47 @@
 [package]
-name = "template-rs"
-version = "0.0.0"
-edition = "2021"
-repository = "https://github.com/al8n/template-rs"
-homepage = "https://github.com/al8n/template-rs"
-documentation = "https://docs.rs/template-rs"
-description = "A template for creating Rust open-source repo on GitHub"
+name = "memspan"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/al8n/memspan"
+homepage = "https://github.com/al8n/memspan"
+documentation = "https://docs.rs/memspan"
+description = "SIMD-accelerated byte-class scanning for lexers and parsers. Backends: AVX-512, AVX2, SSE4.1, NEON, WASM SIMD128. no_std compatible."
 license = "MIT OR Apache-2.0"
-rust-version = "1.73"
+rust-version = "1.95.0"
+keywords = ["memchr", "simd", "lexer", "parser", "bytes"]
+categories = ["parsing", "text-processing", "no-std", "no-std::no-alloc"]
+
+# We don't have any in-lib `#[bench]` functions; everything runs through the
+# explicit criterion bench targets below. Disabling the default lib bench
+# harness lets `cargo bench --benches` pass criterion-specific flags
+# (`--quick`, `--output-format bencher`) without the libtest harness
+# rejecting them as "Unrecognized option".
+[lib]
+bench = false
 
 [[bench]]
-path = "benches/foo.rs"
-name = "foo"
+path = "benches/skip_until.rs"
+name = "skip_until"
+harness = false
+
+[[bench]]
+path = "benches/skip_while.rs"
+name = "skip_while"
+harness = false
+
+[[bench]]
+path = "benches/skip_ascii_class.rs"
+name = "skip_ascii_class"
+harness = false
+
+[[bench]]
+path = "benches/skip_lexer_class.rs"
+name = "skip_lexer_class"
+harness = false
+
+[[bench]]
+path = "benches/skip_class_macro.rs"
+name = "skip_class_macro"
 harness = false
 
 [features]
@@ -21,9 +51,15 @@ std = []
 
 [dependencies]
 
-[dev-dependencies]
+# Criterion pulls in rayon, which doesn't build for the wasm32‑wasi*
+# targets we use to run the simd128 backends under wasmtime. Gate it
+# to non‑wasm hosts — benches never run on wasm anyway (they need
+# system threading / timing that the wasi runner doesn't expose).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 criterion = "0.8"
-tempfile = "3"
+
+[dev-dependencies]
+memchr = "2"
 
 [profile.bench]
 opt-level = 3
@@ -45,4 +81,12 @@ single_use_lifetimes = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(all_tests)',
   'cfg(tarpaulin)',
+  # Testing / coverage helpers. Set via `RUSTFLAGS='--cfg ...'` in CI to
+  # force the dispatcher down specific tiers so every fallback path gets
+  # coverage even on runners that would normally pick the top tier.
+  'cfg(memspan_force_scalar)',
+  'cfg(memspan_disable_avx512)',
+  'cfg(memspan_disable_avx2)',
+  'cfg(memspan_disable_sse42)',
+  'cfg(memspan_disable_simd128)',
 ] }

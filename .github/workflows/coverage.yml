@@ -1,0 +1,182 @@
+name: coverage
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'COPYRIGHT'
+      - 'LICENSE*'
+      - '**.md'
+      - '**.txt'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'COPYRIGHT'
+      - 'LICENSE*'
+      - '**.md'
+      - '**.txt'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Matrix dimensions covered for Codecov to reflect the full SIMD tier
+# cascade:
+#
+# - aarch64 NEON (macOS): covers src/skip/neon.rs plus the
+#   `neon_available()` branch of the dispatcher.
+# - aarch64 scalar-forced: covers the scalar fallback branch of the
+#   dispatcher on aarch64 (reached only when `memspan_force_scalar` is
+#   set, since NEON is mandatory on Apple Silicon otherwise).
+# - x86_64 default (Linux): covers whichever top tier the runner CPU
+#   supports (typically AVX2 on AMD Milan ubuntu-latest runners).
+# - x86_64 AVX2-max: `--cfg memspan_disable_avx512` forces the AVX2
+#   dispatcher branch regardless of runner CPU.
+# - x86_64 SSE4.2-max: `--cfg memspan_disable_avx512 --cfg
+#   memspan_disable_avx2` forces the SSE4.2 dispatcher branch.
+# - x86_64 scalar-forced: `--cfg memspan_force_scalar` forces the scalar
+#   dispatcher branch on x86_64.
+# - x86_64 Windows: validates the MSVC toolchain compiles the
+#   intrinsic-heavy modules and reports coverage of their default runtime
+#   path.
+#
+# Each platform excludes SIMD files it cannot compile (gated behind
+# `#[cfg(target_arch)]`). Without exclusion, tarpaulin would count them
+# as 0/N uncovered lines, dragging down the per-platform number. After
+# Codecov merges, every arch file is covered by its native host.
+
+jobs:
+  coverage:
+    name: coverage (${{ matrix.label }})
+    strategy:
+      matrix:
+        include:
+          # ---- aarch64 (macOS) ----
+          - os: macos-latest
+            label: macos-aarch64
+            rustflags: ''
+            exclude_arch: >-
+              --exclude-files 'src/skip/sse42.rs'
+              --exclude-files 'src/skip/avx2.rs'
+              --exclude-files 'src/skip/avx512.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/x86.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+          - os: macos-latest
+            label: macos-aarch64-scalar
+            rustflags: '--cfg memspan_force_scalar'
+            exclude_arch: >-
+              --exclude-files 'src/skip/sse42.rs'
+              --exclude-files 'src/skip/avx2.rs'
+              --exclude-files 'src/skip/avx512.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/x86.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+
+          # ---- x86_64 (Linux) ----
+          # Standard ubuntu-latest is AMD EPYC (no AVX-512), so the
+          # default tier exercises AVX2 at runtime. AVX-512 correctness
+          # is verified under Intel SDE in the `test-sde` ci.yml job.
+          - os: ubuntu-latest
+            label: linux-x86_64
+            rustflags: ''
+            exclude_arch: >-
+              --exclude-files 'src/skip/neon.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+          - os: ubuntu-latest
+            label: linux-x86_64-avx2-max
+            rustflags: '--cfg memspan_disable_avx512'
+            exclude_arch: >-
+              --exclude-files 'src/skip/neon.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+          - os: ubuntu-latest
+            label: linux-x86_64-sse42-max
+            rustflags: '--cfg memspan_disable_avx512 --cfg memspan_disable_avx2'
+            exclude_arch: >-
+              --exclude-files 'src/skip/neon.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+          - os: ubuntu-latest
+            label: linux-x86_64-scalar
+            rustflags: '--cfg memspan_force_scalar'
+            exclude_arch: >-
+              --exclude-files 'src/skip/neon.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+
+          # ---- x86_64 (Windows) ----
+          - os: windows-latest
+            label: windows-x86_64
+            rustflags: ''
+            exclude_arch: >-
+              --exclude-files 'src/skip/neon.rs'
+              --exclude-files 'src/skip/simd128.rs'
+              --exclude-files 'src/needles/arch/wasm32.rs'
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: rustup update stable --no-self-update && rustup default stable
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Generate coverage
+        shell: bash
+        run: |
+          mkdir -p coverage
+          cargo tarpaulin \
+            --all-features \
+            --run-types tests \
+            --exclude-files 'benches/*' \
+            ${{ matrix.exclude_arch }} \
+            --out xml \
+            --output-dir coverage
+        continue-on-error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.label }}
+          path: coverage/cobertura.xml
+
+  upload-codecov:
+    name: Upload merged coverage to Codecov
+    needs: coverage
+    runs-on: ubuntu-latest
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        label:
+          - macos-aarch64
+          - macos-aarch64-scalar
+          - linux-x86_64
+          - linux-x86_64-avx2-max
+          - linux-x86_64-sse42-max
+          - linux-x86_64-scalar
+          - windows-x86_64
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download ${{ matrix.label }} report
+        uses: actions/download-artifact@v6
+        with:
+          name: coverage-${{ matrix.label }}
+          path: coverage/
+
+      - name: Upload ${{ matrix.label }} to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage/cobertura.xml
+          flags: ${{ matrix.label }}
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
