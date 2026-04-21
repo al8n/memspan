@@ -6,23 +6,24 @@
 
 skipchr::skip_class! {
   /// Whitespace plus a comma separator.
-  pub fn skip_ws_and_comma, bytes = [b' ', b'\t', b'\r', b'\n', b','];
+  pub fn skip_ws_and_comma(bytes = [b' ', b'\t', b'\r', b'\n', b',']);
 }
 
 // ---- ranges only ---------------------------------------------------------
 
 skipchr::skip_class! {
   /// Lowercase ASCII letters only.
-  pub fn skip_lowercase, ranges = [b'a'..=b'z'];
+  pub fn skip_lowercase(ranges = [b'a'..=b'z']);
 }
 
 // ---- bytes + ranges ------------------------------------------------------
 
 skipchr::skip_class! {
   /// Alphanumeric plus a few punctuation bytes.
-  pub fn skip_punct_ident,
+  pub fn skip_punct_ident(
     bytes = [b'_', b'-', b'!', b'?'],
-    ranges = [b'a'..=b'z', b'A'..=b'Z', b'0'..=b'9'];
+    ranges = [b'a'..=b'z', b'A'..=b'Z', b'0'..=b'9'],
+  );
 }
 
 // ---- helpers -------------------------------------------------------------
@@ -158,7 +159,7 @@ fn punct_ident_miss_position_exhaustive() {
 #[test]
 fn generated_whitespace_matches_builtin() {
   skipchr::skip_class! {
-    pub fn skip_ws_macro, bytes = [b' ', b'\t', b'\r', b'\n'];
+    pub fn skip_ws_macro(bytes = [b' ', b'\t', b'\r', b'\n']);
   }
 
   for b in 0u8..=255 {

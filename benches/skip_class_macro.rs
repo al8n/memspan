@@ -10,7 +10,7 @@ use std::hint::black_box;
 skipchr::skip_class! {
   /// Whitespace plus a comma separator — a small (5-byte) class that
   /// exemplifies the macro-vs-`skip_while` comparison.
-  pub fn skip_ws_and_comma, bytes = [b' ', b'\t', b'\r', b'\n', b','];
+  pub fn skip_ws_and_comma(bytes = [b' ', b'\t', b'\r', b'\n', b',']);
 }
 
 const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
