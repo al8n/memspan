@@ -59,7 +59,6 @@ std = []
 criterion = "0.8"
 
 [dev-dependencies]
-tempfile = "3"
 memchr = "2"
 
 [profile.bench]
