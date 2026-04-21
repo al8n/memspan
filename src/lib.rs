@@ -29,6 +29,7 @@ pub use needles::Needles;
 /// built-in `skip_*` fns use, without exposing them in the top-level surface.
 #[doc(hidden)]
 pub mod __macro {
+  #[cfg(target_arch = "aarch64")]
   pub use crate::utils::neon_available;
 
   /// Width of the SIMD chunk processed per iteration.

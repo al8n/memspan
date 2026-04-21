@@ -12,7 +12,7 @@ use crate::Needles;
 
 const CHUNK: usize = 32;
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(crate) unsafe fn range_mask(chunk: __m256i, lo: u8, hi: u8) -> __m256i {
   let x = _mm256_sub_epi8(chunk, _mm256_set1_epi8(lo as i8));
@@ -22,25 +22,25 @@ pub(crate) unsafe fn range_mask(chunk: __m256i, lo: u8, hi: u8) -> __m256i {
 
 // ── per-class mask functions ─────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn binary_mask(c: __m256i) -> __m256i {
   range_mask(c, b'0', b'1')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn octal_digit_mask(c: __m256i) -> __m256i {
   range_mask(c, b'0', b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn digit_mask(c: __m256i) -> __m256i {
   range_mask(c, b'0', b'9')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn hex_digit_mask(c: __m256i) -> __m256i {
   let digit = digit_mask(c);
@@ -49,7 +49,7 @@ unsafe fn hex_digit_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(digit, alpha)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn whitespace_mask(c: __m256i) -> __m256i {
   let sp = _mm256_cmpeq_epi8(c, _mm256_set1_epi8(b' ' as i8));
@@ -59,20 +59,20 @@ unsafe fn whitespace_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(_mm256_or_si256(sp, tab), _mm256_or_si256(nl, cr))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn alpha_mask(c: __m256i) -> __m256i {
   let lower = _mm256_or_si256(c, _mm256_set1_epi8(0x20u8 as i8));
   range_mask(lower, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn alphanumeric_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(alpha_mask(c), digit_mask(c))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn ident_start_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(
@@ -81,7 +81,7 @@ unsafe fn ident_start_mask(c: __m256i) -> __m256i {
   )
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn ident_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(
@@ -90,37 +90,37 @@ unsafe fn ident_mask(c: __m256i) -> __m256i {
   )
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn lower_mask(c: __m256i) -> __m256i {
   range_mask(c, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn upper_mask(c: __m256i) -> __m256i {
   range_mask(c, b'A', b'Z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn ascii_mask(c: __m256i) -> __m256i {
   range_mask(c, 0x00, 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn non_ascii_mask(c: __m256i) -> __m256i {
   range_mask(c, 0x80, 0xFF)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn ascii_graphic_mask(c: __m256i) -> __m256i {
   range_mask(c, 0x21, 0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn ascii_control_mask(c: __m256i) -> __m256i {
   let ctrl = range_mask(c, 0x00, 0x1F);
@@ -128,7 +128,7 @@ unsafe fn ascii_control_mask(c: __m256i) -> __m256i {
   _mm256_or_si256(ctrl, del)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 unsafe fn movemask(m: __m256i) -> u32 {
   _mm256_movemask_epi8(m) as u32
@@ -138,7 +138,7 @@ unsafe fn movemask(m: __m256i) -> u32 {
 
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[cfg_attr(not(tarpaulin), inline)]
     #[target_feature(enable = "avx2")]
     pub(super) unsafe fn $name(input: &[u8]) -> usize {
       let len = input.len();
@@ -230,7 +230,7 @@ skip_ascii_class!(
 
 // ── count_matches / find_last ────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(super) unsafe fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
@@ -277,7 +277,7 @@ where
   count
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(super) unsafe fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -338,7 +338,7 @@ where
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(super) unsafe fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -400,7 +400,7 @@ where
   }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
 pub(super) unsafe fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where

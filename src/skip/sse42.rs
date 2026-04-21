@@ -25,7 +25,7 @@ const CHUNK: usize = 16;
 /// 1. `x = chunk - lo` (wrapping mod 256 — same bit pattern as unsigned wrap)
 /// 2. `min(x, hi-lo)` clamps in-range values to themselves, out-of-range to `hi-lo`
 /// 3. `cmpeq(x, min)` is 0xFF only where `x ≤ hi-lo`, i.e. byte ∈ [lo, hi]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 pub(crate) unsafe fn range_mask(chunk: __m128i, lo: u8, hi: u8) -> __m128i {
   let x = _mm_sub_epi8(chunk, _mm_set1_epi8(lo as i8));
@@ -35,25 +35,25 @@ pub(crate) unsafe fn range_mask(chunk: __m128i, lo: u8, hi: u8) -> __m128i {
 
 // ── per-class mask functions ─────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn binary_mask(c: __m128i) -> __m128i {
   range_mask(c, b'0', b'1')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn octal_digit_mask(c: __m128i) -> __m128i {
   range_mask(c, b'0', b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn digit_mask(c: __m128i) -> __m128i {
   range_mask(c, b'0', b'9')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn hex_digit_mask(c: __m128i) -> __m128i {
   let digit = digit_mask(c);
@@ -62,7 +62,7 @@ unsafe fn hex_digit_mask(c: __m128i) -> __m128i {
   _mm_or_si128(digit, alpha)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse2")]
 unsafe fn whitespace_mask(c: __m128i) -> __m128i {
   let sp = _mm_cmpeq_epi8(c, _mm_set1_epi8(b' ' as i8));
@@ -72,26 +72,26 @@ unsafe fn whitespace_mask(c: __m128i) -> __m128i {
   _mm_or_si128(_mm_or_si128(sp, tab), _mm_or_si128(nl, cr))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn alpha_mask(c: __m128i) -> __m128i {
   let lower = _mm_or_si128(c, _mm_set1_epi8(0x20u8 as i8));
   range_mask(lower, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn alphanumeric_mask(c: __m128i) -> __m128i {
   _mm_or_si128(alpha_mask(c), digit_mask(c))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn ident_start_mask(c: __m128i) -> __m128i {
   _mm_or_si128(alpha_mask(c), _mm_cmpeq_epi8(c, _mm_set1_epi8(b'_' as i8)))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn ident_mask(c: __m128i) -> __m128i {
   _mm_or_si128(
@@ -100,37 +100,37 @@ unsafe fn ident_mask(c: __m128i) -> __m128i {
   )
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn lower_mask(c: __m128i) -> __m128i {
   range_mask(c, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn upper_mask(c: __m128i) -> __m128i {
   range_mask(c, b'A', b'Z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn ascii_mask(c: __m128i) -> __m128i {
   range_mask(c, 0x00, 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn non_ascii_mask(c: __m128i) -> __m128i {
   range_mask(c, 0x80, 0xFF)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn ascii_graphic_mask(c: __m128i) -> __m128i {
   range_mask(c, 0x21, 0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.1")]
 unsafe fn ascii_control_mask(c: __m128i) -> __m128i {
   let ctrl = range_mask(c, 0x00, 0x1F);
@@ -139,7 +139,7 @@ unsafe fn ascii_control_mask(c: __m128i) -> __m128i {
 }
 
 /// Extracts a 16-bit match bitmask (1 bit per lane, bit 0 = lane 0).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse2")]
 unsafe fn movemask(m: __m128i) -> u32 {
   _mm_movemask_epi8(m) as u32
@@ -147,7 +147,7 @@ unsafe fn movemask(m: __m128i) -> u32 {
 
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident, $feature:literal) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[cfg_attr(not(tarpaulin), inline)]
     #[target_feature(enable = $feature)]
     pub(super) unsafe fn $name(input: &[u8]) -> usize {
       let len = input.len();
@@ -268,7 +268,7 @@ skip_ascii_class!(
 
 // ── count_matches / find_last ────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.2")]
 pub(super) unsafe fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
@@ -315,7 +315,7 @@ where
   count
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.2")]
 pub(super) unsafe fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -376,7 +376,7 @@ where
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.2")]
 pub(super) unsafe fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -438,7 +438,7 @@ where
   }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "sse4.2")]
 pub(super) unsafe fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where
