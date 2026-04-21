@@ -1,11 +1,11 @@
 [package]
-name = "lexsimd"
+name = "skipchr"
 version = "0.0.0"
 edition = "2024"
-repository = "https://github.com/al8n/lexsimd"
-homepage = "https://github.com/al8n/lexsimd"
-documentation = "https://docs.rs/lexsimd"
-description = "A SIMD-accelerated lexer utilities for Rust."
+repository = "https://github.com/al8n/skipchr"
+homepage = "https://github.com/al8n/skipchr"
+documentation = "https://docs.rs/skipchr"
+description = "SIMD-accelerated byte-class scanning for lexers and parsers."
 license = "MIT OR Apache-2.0"
 rust-version = "1.95.0"
 categories = ["parsing", "text-processing", "no-std", "no-std::no-alloc"]
@@ -75,11 +75,12 @@ single_use_lifetimes = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(all_tests)',
   'cfg(tarpaulin)',
-  # Testing / coverage helpers. These are set via `RUSTFLAGS='--cfg ...'`
-  # in CI to force the dispatcher down a specific path so lower‑tier
-  # kernels and the scalar fallback get coverage on runners that would
-  # otherwise always pick the top tier.
-  'cfg(lexsimd_force_scalar)',
-  'cfg(lexsimd_disable_avx512)',
-  'cfg(lexsimd_disable_avx2)',
+  # Testing / coverage helpers. Set via `RUSTFLAGS='--cfg ...'` in CI to
+  # force the dispatcher down specific tiers so every fallback path gets
+  # coverage even on runners that would normally pick the top tier.
+  'cfg(skipchr_force_scalar)',
+  'cfg(skipchr_disable_avx512)',
+  'cfg(skipchr_disable_avx2)',
+  'cfg(skipchr_disable_sse42)',
+  'cfg(skipchr_disable_simd128)',
 ] }

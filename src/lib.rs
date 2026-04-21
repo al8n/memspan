@@ -45,7 +45,7 @@ pub mod __macro {
 }
 
 /// Define a custom `skip_*` function for an ASCII byte class, generating the
-/// same scalar fallback + NEON SIMD loop the built-in [`skip::skip_digits`],
+/// same scalar fallback + SIMD loop the built-in [`skip::skip_digits`],
 /// [`skip::skip_whitespace`], etc. use internally.
 ///
 /// The generated function returns the length of the leading prefix where
@@ -57,7 +57,7 @@ pub mod __macro {
 /// # Syntax
 ///
 /// ```ignore
-/// lexsimd::skip_class! {
+/// skipchr::skip_class! {
 ///     /// Doc comment forwarded to the generated fn.
 ///     pub fn skip_my_class
 ///         , bytes  = [b' ', b'\t']           // optional
@@ -76,7 +76,7 @@ pub mod __macro {
 /// A bytes-only class — whitespace plus a comma separator:
 ///
 /// ```
-/// lexsimd::skip_class! {
+/// skipchr::skip_class! {
 ///     pub fn skip_ws_and_comma, bytes = [b' ', b'\t', b'\r', b'\n', b','];
 /// }
 ///
@@ -87,7 +87,7 @@ pub mod __macro {
 /// A range-only class — the leading run of lowercase ASCII letters:
 ///
 /// ```
-/// lexsimd::skip_class! {
+/// skipchr::skip_class! {
 ///     pub fn skip_lowercase, ranges = [b'a'..=b'z'];
 /// }
 ///
@@ -97,7 +97,7 @@ pub mod __macro {
 /// A mixed class — alphanumeric plus a few punctuation bytes:
 ///
 /// ```
-/// lexsimd::skip_class! {
+/// skipchr::skip_class! {
 ///     pub fn skip_punct_ident,
 ///         bytes  = [b'_', b'-', b'!', b'?'],
 ///         ranges = [b'a'..=b'z', b'A'..=b'Z', b'0'..=b'9'];

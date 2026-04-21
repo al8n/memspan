@@ -10,7 +10,7 @@
 //! baseline).
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use lexsimd::{Needles, skip};
+use skipchr::{Needles, skip};
 use std::hint::black_box;
 
 const MICRO_LENGTHS: [usize; 6] = [16, 32, 64, 256, 4 * 1024, 64 * 1024];

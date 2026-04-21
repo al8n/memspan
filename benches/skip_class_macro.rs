@@ -4,10 +4,10 @@
 //! at every size.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use lexsimd::skip;
+use skipchr::skip;
 use std::hint::black_box;
 
-lexsimd::skip_class! {
+skipchr::skip_class! {
   /// Whitespace plus a comma separator — a small (5-byte) class that
   /// exemplifies the macro-vs-`skip_while` comparison.
   pub fn skip_ws_and_comma, bytes = [b' ', b'\t', b'\r', b'\n', b','];

@@ -1,4 +1,4 @@
-use lexsimd::skip;
+use skipchr::skip;
 
 #[test]
 fn skip_until_handles_chunk_boundaries_for_single_needle() {

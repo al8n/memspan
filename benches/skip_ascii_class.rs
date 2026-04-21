@@ -18,7 +18,7 @@
 //!   matters more than the SIMD throughput win.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use lexsimd::{Needles, skip};
+use skipchr::{Needles, skip};
 use std::hint::black_box;
 
 /// Sizes for the per-call micro benches.

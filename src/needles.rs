@@ -26,6 +26,9 @@ macro_rules! tail_find_fixed {
   };
 }
 
+tail_find_fixed!(tail_find1, a);
+tail_find_fixed!(tail_find2, a, b);
+tail_find_fixed!(tail_find3, a, b, c);
 tail_find_fixed!(tail_find4, a, b, c, d);
 tail_find_fixed!(tail_find5, a, b, c, d, e);
 tail_find_fixed!(tail_find6, a, b, c, d, e, f);
@@ -61,8 +64,8 @@ prefix_len_fixed!(prefix_len8, a, b, c, d, e, f, g, h);
 pub trait Needles: sealed::Sealed {
   /// Number of needles in this set.
   ///
-  /// The dispatcher uses this to pick between [`memchr`]-family scalar paths
-  /// (which already saturate SIMD for 1–3 needles) and the wider SIMD loop.
+  /// The dispatcher uses this to pick between the scalar path (for inputs
+  /// shorter than one SIMD chunk) and the wider SIMD loop.
   fn needle_count(&self) -> usize;
 
   /// Whether the needles are empty (e.g., an empty slice).
@@ -75,9 +78,8 @@ pub trait Needles: sealed::Sealed {
   /// the index (relative to the start of `tail`) if found.
   ///
   /// This is the scalar primitive that backs [`crate::skip::skip_until`]'s
-  /// fallback path. For 1–3 needles it dispatches to the [`memchr`] family,
-  /// which is already SIMD-saturated; for 4–8 needles it uses an unrolled
-  /// per-byte loop that LLVM auto-vectorizes well.
+  /// fallback path. Uses an unrolled per-byte loop that LLVM auto-vectorizes
+  /// well for 1–8 needles; falls back to a per-byte `contains` check beyond 8.
   ///
   /// Calling this directly bypasses the per-call dispatcher overhead in
   /// [`crate::skip::skip_until`] (one length check + one runtime feature
@@ -105,13 +107,39 @@ pub trait Needles: sealed::Sealed {
   /// roughly 1.7× throughput at len=16. Prefer the dispatcher for general use.
   fn prefix_len(&self, input: &[u8]) -> usize;
 
-  /// Returns a Neon byte mask where matching lanes are `0xFF` and non-matching
+  /// Returns a NEON byte mask where matching lanes are `0xFF` and non-matching
   /// lanes are `0x00`.
   #[cfg(target_arch = "aarch64")]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
   ) -> core::arch::aarch64::uint8x16_t;
+
+  /// Returns an SSE2 byte mask (`__m128i`) where matching lanes are `0xFF` and
+  /// non-matching lanes are `0x00`.
+  #[cfg(target_arch = "x86")]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i;
+
+  /// Returns an SSE2 byte mask (`__m128i`) where matching lanes are `0xFF` and
+  /// non-matching lanes are `0x00`.
+  #[cfg(target_arch = "x86_64")]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i;
+
+  /// Returns an AVX2 byte mask (`__m256i`) where matching lanes are `0xFF` and
+  /// non-matching lanes are `0x00`.
+  #[cfg(target_arch = "x86_64")]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i;
+
+  /// Returns a 64-bit AVX-512BW bitmask where bit `i` is set if byte lane `i`
+  /// of `chunk` matches any needle. Unlike the SSE/AVX variants this is a
+  /// direct `__mmask64` rather than a byte-per-lane vector.
+  #[cfg(target_arch = "x86_64")]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64;
+
+  /// Returns a WASM SIMD128 byte mask (`v128`) where matching lanes are `0xFF`
+  /// and non-matching lanes are `0x00`.
+  #[cfg(target_arch = "wasm32")]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128;
 }
 
 impl<T> Needles for &T
@@ -141,6 +169,36 @@ where
   ) -> core::arch::aarch64::uint8x16_t {
     (**self).eq_any_mask_neon(chunk)
   }
+
+  #[cfg(target_arch = "x86")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
+    (**self).eq_any_mask_sse2(chunk)
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
+    (**self).eq_any_mask_sse2(chunk)
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
+    (**self).eq_any_mask_avx2(chunk)
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
+    (**self).eq_any_mask_avx512(chunk)
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
+    (**self).eq_any_mask_simd128(chunk)
+  }
 }
 
 impl Needles for u8 {
@@ -151,7 +209,7 @@ impl Needles for u8 {
 
   #[cfg_attr(not(tarpaulin), inline(always))]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
-    memchr::memchr(*self, tail)
+    tail_find1(tail, *self)
   }
 
   #[cfg_attr(not(tarpaulin), inline(always))]
@@ -168,6 +226,49 @@ impl Needles for u8 {
     let target = unsafe { core::arch::aarch64::vdupq_n_u8(*self) };
     unsafe { core::arch::aarch64::vceqq_u8(chunk, target) }
   }
+
+  #[cfg(target_arch = "x86")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
+    unsafe {
+      use core::arch::x86::*;
+      _mm_cmpeq_epi8(chunk, _mm_set1_epi8(*self as i8))
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
+    unsafe {
+      use core::arch::x86_64::*;
+      _mm_cmpeq_epi8(chunk, _mm_set1_epi8(*self as i8))
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
+    unsafe {
+      use core::arch::x86_64::*;
+      _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8(*self as i8))
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
+    unsafe {
+      use core::arch::x86_64::*;
+      _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8(*self as i8))
+    }
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
+    use core::arch::wasm32::*;
+    i8x16_eq(chunk, i8x16_splat(*self as i8))
+  }
 }
 
 impl Needles for [u8] {
@@ -180,9 +281,9 @@ impl Needles for [u8] {
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     match self {
       [] => None,
-      [a] => memchr::memchr(*a, tail),
-      [a, b] => memchr::memchr2(*a, *b, tail),
-      [a, b, c] => memchr::memchr3(*a, *b, *c, tail),
+      [a] => tail_find1(tail, *a),
+      [a, b] => tail_find2(tail, *a, *b),
+      [a, b, c] => tail_find3(tail, *a, *b, *c),
       [a, b, c, d] => tail_find4(tail, *a, *b, *c, *d),
       [a, b, c, d, e] => tail_find5(tail, *a, *b, *c, *d, *e),
       [a, b, c, d, e, f] => tail_find6(tail, *a, *b, *c, *d, *e, *f),
@@ -234,6 +335,123 @@ impl Needles for [u8] {
       _ => arch::aarch64::eq_any_mask_dynamic(chunk, self),
     }
   }
+
+  #[cfg(target_arch = "x86")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
+    match self {
+      [] => unsafe { core::arch::x86::_mm_setzero_si128() },
+      [a] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a]) },
+      [a, b] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b]) },
+      [a, b, c] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c]) },
+      [a, b, c, d] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d]) },
+      [a, b, c, d, e] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e]) },
+      [a, b, c, d, e, f] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f])
+      },
+      [a, b, c, d, e, f, g] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f, *g])
+      },
+      [a, b, c, d, e, f, g, h] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f, *g, *h])
+      },
+      _ => unsafe { arch::x86::eq_any_mask_dynamic_sse2(chunk, self) },
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
+    match self {
+      [] => unsafe { core::arch::x86_64::_mm_setzero_si128() },
+      [a] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a]) },
+      [a, b] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b]) },
+      [a, b, c] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c]) },
+      [a, b, c, d] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d]) },
+      [a, b, c, d, e] => unsafe { arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e]) },
+      [a, b, c, d, e, f] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f])
+      },
+      [a, b, c, d, e, f, g] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f, *g])
+      },
+      [a, b, c, d, e, f, g, h] => unsafe {
+        arch::x86::eq_any_mask_const_sse2(chunk, [*a, *b, *c, *d, *e, *f, *g, *h])
+      },
+      _ => unsafe { arch::x86::eq_any_mask_dynamic_sse2(chunk, self) },
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
+    match self {
+      [] => unsafe { core::arch::x86_64::_mm256_setzero_si256() },
+      [a] => unsafe { arch::x86::eq_any_mask_const_avx2(chunk, [*a]) },
+      [a, b] => unsafe { arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b]) },
+      [a, b, c] => unsafe { arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c]) },
+      [a, b, c, d] => unsafe { arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c, *d]) },
+      [a, b, c, d, e] => unsafe { arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c, *d, *e]) },
+      [a, b, c, d, e, f] => unsafe {
+        arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c, *d, *e, *f])
+      },
+      [a, b, c, d, e, f, g] => unsafe {
+        arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c, *d, *e, *f, *g])
+      },
+      [a, b, c, d, e, f, g, h] => unsafe {
+        arch::x86::eq_any_mask_const_avx2(chunk, [*a, *b, *c, *d, *e, *f, *g, *h])
+      },
+      _ => unsafe { arch::x86::eq_any_mask_dynamic_avx2(chunk, self) },
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
+    match self {
+      [] => 0u64,
+      [a] => unsafe { arch::x86::eq_any_mask_const_avx512(chunk, [*a]) },
+      [a, b] => unsafe { arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b]) },
+      [a, b, c] => unsafe { arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c]) },
+      [a, b, c, d] => unsafe { arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c, *d]) },
+      [a, b, c, d, e] => unsafe {
+        arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c, *d, *e])
+      },
+      [a, b, c, d, e, f] => unsafe {
+        arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c, *d, *e, *f])
+      },
+      [a, b, c, d, e, f, g] => unsafe {
+        arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c, *d, *e, *f, *g])
+      },
+      [a, b, c, d, e, f, g, h] => unsafe {
+        arch::x86::eq_any_mask_const_avx512(chunk, [*a, *b, *c, *d, *e, *f, *g, *h])
+      },
+      _ => unsafe { arch::x86::eq_any_mask_dynamic_avx512(chunk, self) },
+    }
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
+    match self {
+      [] => arch::wasm32::eq_any_mask_const_simd128(chunk, []),
+      [a] => arch::wasm32::eq_any_mask_const_simd128(chunk, [*a]),
+      [a, b] => arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b]),
+      [a, b, c] => arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c]),
+      [a, b, c, d] => arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c, *d]),
+      [a, b, c, d, e] => arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c, *d, *e]),
+      [a, b, c, d, e, f] => {
+        arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c, *d, *e, *f])
+      }
+      [a, b, c, d, e, f, g] => {
+        arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c, *d, *e, *f, *g])
+      }
+      [a, b, c, d, e, f, g, h] => {
+        arch::wasm32::eq_any_mask_const_simd128(chunk, [*a, *b, *c, *d, *e, *f, *g, *h])
+      }
+      _ => arch::wasm32::eq_any_mask_dynamic_simd128(chunk, self),
+    }
+  }
 }
 
 impl<const N: usize> Needles for [u8; N] {
@@ -246,9 +464,9 @@ impl<const N: usize> Needles for [u8; N] {
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     match self.as_slice() {
       [] => None,
-      [a] => memchr::memchr(*a, tail),
-      [a, b] => memchr::memchr2(*a, *b, tail),
-      [a, b, c] => memchr::memchr3(*a, *b, *c, tail),
+      [a] => tail_find1(tail, *a),
+      [a, b] => tail_find2(tail, *a, *b),
+      [a, b, c] => tail_find3(tail, *a, *b, *c),
       [a, b, c, d] => tail_find4(tail, *a, *b, *c, *d),
       [a, b, c, d, e] => tail_find5(tail, *a, *b, *c, *d, *e),
       [a, b, c, d, e, f] => tail_find6(tail, *a, *b, *c, *d, *e, *f),
@@ -284,5 +502,35 @@ impl<const N: usize> Needles for [u8; N] {
     chunk: core::arch::aarch64::uint8x16_t,
   ) -> core::arch::aarch64::uint8x16_t {
     arch::aarch64::eq_any_mask_const(chunk, *self)
+  }
+
+  #[cfg(target_arch = "x86")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
+    unsafe { arch::x86::eq_any_mask_const_sse2(chunk, *self) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
+    unsafe { arch::x86::eq_any_mask_const_sse2(chunk, *self) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
+    unsafe { arch::x86::eq_any_mask_const_avx2(chunk, *self) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
+    unsafe { arch::x86::eq_any_mask_const_avx512(chunk, *self) }
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
+    arch::wasm32::eq_any_mask_const_simd128(chunk, *self)
   }
 }

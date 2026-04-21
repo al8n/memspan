@@ -1,4 +1,4 @@
-use lexsimd::skip;
+use skipchr::skip;
 
 #[test]
 fn skip_while_handles_single_needle() {

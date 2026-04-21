@@ -4,21 +4,21 @@
 
 // ---- bytes only ----------------------------------------------------------
 
-lexsimd::skip_class! {
+skipchr::skip_class! {
   /// Whitespace plus a comma separator.
   pub fn skip_ws_and_comma, bytes = [b' ', b'\t', b'\r', b'\n', b','];
 }
 
 // ---- ranges only ---------------------------------------------------------
 
-lexsimd::skip_class! {
+skipchr::skip_class! {
   /// Lowercase ASCII letters only.
   pub fn skip_lowercase, ranges = [b'a'..=b'z'];
 }
 
 // ---- bytes + ranges ------------------------------------------------------
 
-lexsimd::skip_class! {
+skipchr::skip_class! {
   /// Alphanumeric plus a few punctuation bytes.
   pub fn skip_punct_ident,
     bytes = [b'_', b'-', b'!', b'?'],
@@ -157,7 +157,7 @@ fn punct_ident_miss_position_exhaustive() {
 /// that the macro hasn't drifted from the hand-written specialization.
 #[test]
 fn generated_whitespace_matches_builtin() {
-  lexsimd::skip_class! {
+  skipchr::skip_class! {
     pub fn skip_ws_macro, bytes = [b' ', b'\t', b'\r', b'\n'];
   }
 
@@ -165,7 +165,7 @@ fn generated_whitespace_matches_builtin() {
     let input = [b];
     assert_eq!(
       skip_ws_macro(&input),
-      lexsimd::skip::skip_whitespace(&input),
+      skipchr::skip::skip_whitespace(&input),
       "byte 0x{b:02x}: macro vs built-in disagreed"
     );
   }
@@ -177,7 +177,7 @@ fn generated_whitespace_matches_builtin() {
       input[offset] = b'!';
       assert_eq!(
         skip_ws_macro(&input),
-        lexsimd::skip::skip_whitespace(&input),
+        skipchr::skip::skip_whitespace(&input),
         "len={len}, offset={offset}"
       );
     }

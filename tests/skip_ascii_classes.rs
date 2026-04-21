@@ -1,4 +1,4 @@
-use lexsimd::skip;
+use skipchr::skip;
 
 fn assert_prefix_boundaries(scanner: fn(&[u8]) -> usize, fill: u8, miss: u8) {
   for len in 0usize..=96 {

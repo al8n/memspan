@@ -7,7 +7,7 @@
 //! the entire `u8` space, plus an exhaustive miss-position scan over lengths
 //! that span the probe boundary, the SIMD loop, and the overlap tail.
 
-use lexsimd::skip;
+use skipchr::skip;
 
 // ---- helpers --------------------------------------------------------------
 

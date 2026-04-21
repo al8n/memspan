@@ -40,17 +40,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # aarch64 NEON — runtime dispatcher picks NEON. This is the
-          # primary tier for the project today: every `skip::skip_*` and
-          # `skip_class!`-generated fn has a hand-tuned NEON code path
-          # exercised here.
+          # aarch64 NEON — runtime dispatcher picks NEON. Every
+          # `skip::skip_*` and `skip_class!`-generated fn has a hand-tuned
+          # NEON code path exercised here.
           - os: macos-latest
             arch: aarch64
             tier: neon
             rustflags: ''
             label: macos-aarch64-neon
 
-          # aarch64 with NEON forced off via `lexsimd_force_scalar`: the
+          # aarch64 with NEON forced off via `skipchr_force_scalar`: the
           # dispatcher takes the scalar fallback on every call. Gives a
           # like-for-like scalar baseline on the same hardware as the NEON
           # tier above, so the NEON win is measurable without cross-runner
@@ -58,56 +57,49 @@ jobs:
           - os: macos-latest
             arch: aarch64
             tier: scalar
-            rustflags: '--cfg lexsimd_force_scalar'
+            rustflags: '--cfg skipchr_force_scalar'
             label: macos-aarch64-scalar
 
           # x86_64 default — runtime dispatcher picks whichever x86 tier
           # the runner supports. Standard ubuntu-latest is AMD EPYC 7763
-          # (Milan): AVX2 yes, AVX-512 no.
-          #
-          # NOTE: x86_64 SIMD kernels are not yet implemented in this
-          # crate, so today this row reports the scalar (auto-vectorized)
-          # numbers. Once the x86 backend lands, the dispatcher will
-          # exercise the AVX2 kernel here.
+          # (Milan): AVX2 yes, AVX-512 no. This tier exercises the AVX2
+          # kernel in practice.
           - os: ubuntu-latest
             arch: x86_64
             tier: default
             rustflags: ''
             label: ubuntu-x86_64-default
 
-          # No AVX-512 bench tier. GitHub-hosted free runners are AMD
-          # Milan (no AVX-512); emulated numbers from Intel SDE are
-          # ~5-10× off real hardware. AVX-512 *correctness* should be
-          # covered separately (e.g., a `test-sde` job in ci.yml when
-          # the kernel exists).
+          # Note: no AVX-512 bench tier. GitHub-hosted free runners are
+          # AMD Milan (no AVX-512), and emulated numbers from Intel SDE
+          # are ~5-10× off real hardware — not worth measuring. AVX-512
+          # correctness is covered by the `test-sde` job in ci.yml.
 
-          # x86_64 with AVX-512 disabled: forces the AVX2 dispatch
-          # branch on runners that would otherwise pick AVX-512. Cfg is
-          # reserved (see Cargo.toml `check-cfg`); active once the AVX2
-          # kernel ships.
+          # x86_64 with AVX-512 disabled: forces the AVX2 dispatch branch
+          # on runners that would otherwise pick AVX-512. Gives explicit
+          # AVX2-tier numbers regardless of runner CPU.
           - os: ubuntu-latest
             arch: x86_64
             tier: avx2-max
-            rustflags: '--cfg lexsimd_disable_avx512'
+            rustflags: '--cfg skipchr_disable_avx512'
             label: ubuntu-x86_64-avx2-max
 
-          # x86_64 with AVX-512 and AVX2 both disabled: forces the SSE4.1
-          # branch. Every x86_64 CPU since ~2008 has SSE4.1, so this tier
-          # exercises the SSE4.1 kernel on every runner. Cfgs are
-          # reserved; active once the SSE4.1 kernel ships.
+          # x86_64 with AVX-512 and AVX2 both disabled: forces the SSE4.2
+          # dispatch branch. Every x86_64 CPU since ~2008 has SSE4.2, so
+          # this tier exercises the SSE4.2 kernel on every runner.
           - os: ubuntu-latest
             arch: x86_64
-            tier: sse41-max
-            rustflags: '--cfg lexsimd_disable_avx512 --cfg lexsimd_disable_avx2'
-            label: ubuntu-x86_64-sse41-max
+            tier: sse42-max
+            rustflags: '--cfg skipchr_disable_avx512 --cfg skipchr_disable_avx2'
+            label: ubuntu-x86_64-sse42-max
 
           # x86_64 with every SIMD backend short-circuited: scalar-only
           # baseline. Pairs with `ubuntu-x86_64-default` to measure the
-          # SIMD win on Linux/x86_64 once the x86 kernels exist.
+          # SIMD win on Linux/x86_64.
           - os: ubuntu-latest
             arch: x86_64
             tier: scalar
-            rustflags: '--cfg lexsimd_force_scalar'
+            rustflags: '--cfg skipchr_force_scalar'
             label: ubuntu-x86_64-scalar
 
           # x86_64 with `-C target-cpu=native`: enables the full feature
@@ -118,12 +110,10 @@ jobs:
           # `CARGO_TARGET_*_RUSTFLAGS` env var) instead of the global
           # `rustflags` field. The global `RUSTFLAGS` applies to *every*
           # rustc invocation, including proc macro dylibs built for the
-          # host (`thiserror_impl`, etc.), which then get codegen'd with
-          # host-CPU-specific instructions and SIGILL when rustc loads
-          # them in a different execution context. The per-target var
-          # scopes `-C target-cpu=native` to the target crate only, so
-          # proc macros stay generic and we still get maximum codegen
-          # quality for the benchmark build.
+          # host, which then get codegen'd with host-CPU-specific
+          # instructions and SIGILL when rustc loads them in a different
+          # execution context. The per-target var scopes
+          # `-C target-cpu=native` to the target crate only.
           - os: ubuntu-latest
             arch: x86_64
             tier: native
@@ -193,17 +183,10 @@ jobs:
 
       - name: Run benchmarks
         shell: bash
-        # `--benches` limits cargo to the registered bench targets. The
-        # `[lib] bench = false` setting in `Cargo.toml` suppresses the
-        # default libtest bench harness, which would otherwise be invoked
-        # by `cargo bench --benches` and reject `--output-format bencher`.
-        #
-        # We deliberately do NOT pass `--quick` here: criterion's quick
-        # mode emits unnamed `bench:` lines, breaking the
-        # "test <name> ... bench: ..." output that the summary parser
-        # below greps for. Full criterion samples take ~20-25 min per
-        # platform; the matrix runs in parallel so wall time stays
-        # bounded.
+        # `--benches` limits cargo to the registered bench targets.
+        # Without it, `cargo bench` also runs the library's `#[test]`
+        # harness in release mode, and the lib test harness rejects
+        # `--output-format bencher` with "Unrecognized option".
         run: cargo bench --benches -- --output-format bencher | tee benchmark-all-${{ matrix.label }}.txt
         continue-on-error: false
 

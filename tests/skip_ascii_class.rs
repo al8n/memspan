@@ -1,4 +1,4 @@
-use lexsimd::skip;
+use skipchr::skip;
 
 // ---- skip_binary -----------------------------------------------------------
 
