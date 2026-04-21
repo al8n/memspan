@@ -135,6 +135,40 @@ assert_eq!(skip_lowercase(b"abcXYZ"), 3);
 assert_eq!(skip_punct_ident(b"hello-world! 42"), 12);
 ```
 
+## Benchmarks
+
+Throughput at 4096-byte input, measured on GitHub Actions runners (2026-04-21).
+
+### Built-in ASCII class functions
+
+| Function | aarch64 NEON | aarch64 scalar | x86\_64 AVX2 | x86\_64 scalar |
+|---|---|---|---|---|
+| `skip_binary` | 24.8 GiB/s | 2.4 GiB/s | 59.1 GiB/s | 3.0 GiB/s |
+| `skip_octal_digits` | 39.9 GiB/s | 2.4 GiB/s | 62.1 GiB/s | 3.0 GiB/s |
+| `skip_digits` | 39.3 GiB/s | 2.5 GiB/s | 63.4 GiB/s | 3.0 GiB/s |
+| `skip_hex_digits` | 21.7 GiB/s | 1.4 GiB/s | 33.2 GiB/s | 1.5 GiB/s |
+| `skip_alpha` | 35.1 GiB/s | 1.9 GiB/s | 62.4 GiB/s | 1.8 GiB/s |
+| `skip_alphanumeric` | 21.7 GiB/s | 1.6 GiB/s | 31.9 GiB/s | 1.5 GiB/s |
+| `skip_ident_start` | 23.9 GiB/s | 1.7 GiB/s | 40.0 GiB/s | 1.5 GiB/s |
+| `skip_ident` | 17.8 GiB/s | 1.3 GiB/s | 28.5 GiB/s | 1.5 GiB/s |
+| `skip_whitespace` | 16.5 GiB/s | 1.5 GiB/s | 38.4 GiB/s | 2.0 GiB/s |
+
+### Generic operations
+
+| Function | aarch64 NEON | aarch64 scalar | x86\_64 AVX2 | x86\_64 scalar |
+|---|---|---|---|---|
+| `skip_until` | 12.9 GiB/s | 1.5 GiB/s | 26.3 GiB/s | 1.0 GiB/s |
+| `skip_while` | 15.2 GiB/s | 2.0 GiB/s | 26.2 GiB/s | 1.2 GiB/s |
+
+### `skip_class!` macro vs `skip_while`
+
+| | aarch64 NEON | x86\_64 AVX2 |
+|---|---|---|
+| `skip_class!` | 14.2 GiB/s | 36.0 GiB/s |
+| `skip_while` (array) | 15.1 GiB/s | 26.8 GiB/s |
+
+**Environments:** aarch64 — macOS-latest runner (ARM64, NEON); x86\_64 — ubuntu-latest runner (X64, runtime AVX2 detection). All runs with `RUSTFLAGS=""`.
+
 ## Features
 
 | Feature | Default | Description |
