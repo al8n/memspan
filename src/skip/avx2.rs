@@ -1,4 +1,5 @@
 //! AVX2 (256-bit) implementations of `skip_until`, `skip_while`, and the
+#![allow(unsafe_op_in_unsafe_fn)]
 //! specialized ASCII-class scanners.
 //!
 //! Chunk size doubles to 32 bytes vs SSE4.2; the 2× unrolled main loop

@@ -1,4 +1,7 @@
 //! SSE4.2 (128-bit) implementations of `skip_until`, `skip_while`, and the
+// Rust 2024: unsafe_op_in_unsafe_fn is warn-by-default; SIMD helpers call
+// other unsafe fns pervasively — allow it for this module.
+#![allow(unsafe_op_in_unsafe_fn)]
 //! specialized ASCII-class scanners.
 //!
 //! All public functions in this module are `unsafe` because they require the

@@ -1,4 +1,5 @@
 //! AVX-512BW (512-bit) implementations of `skip_until`, `skip_while`, and the
+#![allow(unsafe_op_in_unsafe_fn)]
 //! specialized ASCII-class scanners.
 //!
 //! AVX-512BW is special: comparison intrinsics like `_mm512_cmpeq_epi8_mask`
