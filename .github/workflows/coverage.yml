@@ -133,6 +133,7 @@ jobs:
         run: |
           mkdir -p coverage
           cargo tarpaulin \
+            --engine llvm \
             --all-features \
             --run-types tests \
             --exclude-files 'benches/*' \
