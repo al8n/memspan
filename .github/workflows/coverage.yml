@@ -109,7 +109,7 @@ jobs:
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust + llvm-tools-preview
         # `cargo-llvm-cov` requires the `llvm-tools-preview` rustup
@@ -184,7 +184,7 @@ jobs:
     name: coverage (linux-x86_64-avx512-sde)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust + llvm-tools-preview
         run: |
@@ -255,7 +255,7 @@ jobs:
           - linux-x86_64-avx512-sde
           - windows-x86_64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download ${{ matrix.label }} report
         uses: actions/download-artifact@v8
