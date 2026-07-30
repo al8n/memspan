@@ -134,7 +134,7 @@ jobs:
             ${{ runner.os }}-coverage-${{ matrix.label }}-
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.2
         with:
           tool: cargo-llvm-cov
 
@@ -204,7 +204,7 @@ jobs:
             ${{ runner.os }}-coverage-sde-
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.2
         with:
           tool: cargo-llvm-cov
 
