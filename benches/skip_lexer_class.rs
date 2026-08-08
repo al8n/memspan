@@ -196,7 +196,7 @@ fn bench_one_density<F, P, const N: usize>(
   group.finish();
 }
 
-const WS_NEEDLES: [u8; 4] = [b' ', b'\t', b'\n', b'\r'];
+const WS_NEEDLES: [u8; 4] = *b" \t\n\r";
 
 const ALPHA_NEEDLES: [u8; 52] = *b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 

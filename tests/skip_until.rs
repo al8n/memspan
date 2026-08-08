@@ -17,12 +17,8 @@ fn skip_until_handles_chunk_boundaries_for_fixed_needles() {
     let mut input = vec![b'a'; len];
     input[len - 1] = b'Y';
 
-    assert_eq!(
-      skip::skip_until(&input, [b'X', b'Y']),
-      Some(len - 1),
-      "len={len}"
-    );
-    assert_eq!(skip::skip_until(&input, [b'X', b'Z']), None, "len={len}");
+    assert_eq!(skip::skip_until(&input, *b"XY"), Some(len - 1), "len={len}");
+    assert_eq!(skip::skip_until(&input, *b"XZ"), None, "len={len}");
     assert_eq!(skip::skip_until(&input, b"XY"), Some(len - 1), "len={len}");
   }
 }
@@ -55,8 +51,8 @@ fn skip_until_returns_none_for_empty_needles() {
 /// and the overlap-tail logic.
 #[test]
 fn skip_until_simd_path_boundary_lengths_5_needles() {
-  let needles = [b'1', b'2', b'3', b'4', b'5'];
-  let miss = [b'1', b'2', b'3', b'4', b'6'];
+  let needles = *b"12345";
+  let miss = *b"12346";
 
   for len in [
     1usize, 7, 15, 16, 17, 23, 31, 32, 33, 47, 48, 63, 64, 65, 127, 128, 129, 255, 256,
@@ -77,7 +73,7 @@ fn skip_until_simd_path_boundary_lengths_5_needles() {
 /// the overlap-tail region.
 #[test]
 fn skip_until_simd_path_match_inside_each_chunk() {
-  let needles = [b'!', b'@', b'#', b'$', b'%'];
+  let needles = *b"!@#$%";
 
   for len in 16usize..=80 {
     for hit_pos in 0..len {

@@ -256,8 +256,8 @@ fn contains_any_basic() {
   assert!(!skip::contains_any(b"", b'a'));
   assert!(skip::contains_any(b"hello", b'e'));
   assert!(!skip::contains_any(b"hello", b'z'));
-  assert!(skip::contains_any(b"abc", [b'x', b'b']));
-  assert!(!skip::contains_any(b"abc", [b'x', b'y']));
+  assert!(skip::contains_any(b"abc", *b"xb"));
+  assert!(!skip::contains_any(b"abc", *b"xy"));
 }
 
 #[test]

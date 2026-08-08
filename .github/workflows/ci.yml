@@ -56,7 +56,13 @@ jobs:
     - name: Install cargo-hack
       run: cargo install cargo-hack
     - name: Apply clippy lints
-      run: cargo hack clippy --each-feature
+      # `--all-targets` is load-bearing. Without it the matrix lints the library
+      # only, so `tests/` and `benches/` go unlinted however many feature
+      # permutations run — which is how 32 diagnostics accumulated in them while
+      # this job stayed green. `-D warnings` is repeated at the call site rather
+      # than left to the workflow-level RUSTFLAGS so the gate's intent is legible
+      # where the gate is.
+      run: cargo hack clippy --each-feature --no-deps --all-targets -- -D warnings
 
   # Run tests on some extra platforms
   cross:

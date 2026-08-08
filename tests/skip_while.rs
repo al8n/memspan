@@ -9,7 +9,7 @@ fn skip_while_handles_single_needle() {
 
 #[test]
 fn skip_while_handles_fixed_needles_across_chunk_boundaries() {
-  let needles = [b' ', b'\t', b'\r', b'\n', b','];
+  let needles = *b" \t\r\n,";
 
   for len in [
     1usize, 7, 15, 16, 17, 23, 31, 32, 33, 47, 48, 63, 64, 65, 127, 128, 129, 255, 256,
@@ -59,7 +59,7 @@ fn skip_while_empty_needles_matches_empty_prefix() {
 /// the SIMD loop, and the overlap-tail region.
 #[test]
 fn skip_while_simd_path_miss_inside_each_chunk() {
-  let needles = [b' ', b'\t', b'\r', b'\n', b','];
+  let needles = *b" \t\r\n,";
 
   for len in 16usize..=80 {
     for miss_pos in 0..len {

@@ -582,17 +582,17 @@ mod tests {
 
   #[test]
   fn skip_until_short_input_defensive() {
-    let hit = skip_until(b"aaa", [b'a', b'b']);
+    let hit = skip_until(b"aaa", *b"ab");
     assert_eq!(hit, Some(0));
-    let miss = skip_until(b"zzz", [b'a', b'b']);
+    let miss = skip_until(b"zzz", *b"ab");
     assert_eq!(miss, None);
   }
 
   #[test]
   fn skip_while_short_input_defensive() {
-    let r = skip_while(b"aabz", [b'a', b'b']);
+    let r = skip_while(b"aabz", *b"ab");
     assert_eq!(r, 3);
-    let r = skip_while(b"zzz", [b'a', b'b']);
+    let r = skip_while(b"zzz", *b"ab");
     assert_eq!(r, 0);
   }
 }

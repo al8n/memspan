@@ -13,7 +13,7 @@ memspan::skip_class! {
   pub fn skip_ws_and_comma(bytes = [b' ', b'\t', b'\r', b'\n', b',']);
 }
 
-const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+const NEEDLES: [u8; 5] = *b" \t\r\n,";
 
 fn input_with_miss_at_end(len: usize, fill: u8, miss: u8) -> Vec<u8> {
   let mut input = vec![fill; len];
