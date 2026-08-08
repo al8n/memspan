@@ -17,6 +17,20 @@
 //!   population the current heuristic serves, and the one any short-run fix
 //!   must not regress.
 //!
+//! and two aggregate groups that drive a scanner the way a lexer does, from a
+//! cursor whose remaining slice stays long while the run lengths vary:
+//!
+//! * `lexer_sweep/*` — the `skip_ascii_class!` kernels, and **only** those.
+//!   `.github/workflows/probe-sweep.yml` selects this group by name to sweep
+//!   `CLASS_PROBE`, and `ci/probe_sweep.py` fails if a member of it is not one
+//!   of the macro-generated kernels.
+//! * `generic_sweep/*` — `skip_while` and `skip_until`, which probe a whole
+//!   chunk and never read `CLASS_PROBE`. Kept because they are the evidence
+//!   that the probe-width defect is specific to the class kernels rather than
+//!   general to the dispatcher, but held out of the sweep: a row the sweep
+//!   cannot move contributes only noise, and that noise would widen the spread
+//!   the report thresholds against.
+//!
 //! Three implementations are compared on both populations:
 //!
 //! * `memspan` — the library entry point as shipped.
@@ -303,12 +317,18 @@ fn bench_lexer_sweep(c: &mut Criterion) {
 
   let buf: Vec<u8> = FRAGMENT.iter().copied().cycle().take(BUF_LEN).collect();
 
-  fn one<F, P>(c: &mut Criterion, buf: &[u8], name: &str, memspan_fn: F, pred: P)
-  where
+  fn one<F, P>(
+    c: &mut Criterion,
+    group_prefix: &str,
+    buf: &[u8],
+    name: &str,
+    memspan_fn: F,
+    pred: P,
+  ) where
     F: Fn(&[u8]) -> usize + Copy,
     P: Fn(u8) -> bool + Copy,
   {
-    let mut group = c.benchmark_group(format!("lexer_sweep/{name}"));
+    let mut group = c.benchmark_group(format!("{group_prefix}/{name}"));
     group.throughput(Throughput::Bytes(SCAN_LIMIT as u64));
 
     group.bench_with_input(BenchmarkId::new("memspan", SCAN_LIMIT), &buf, |b, buf| {
@@ -330,17 +350,66 @@ fn bench_lexer_sweep(c: &mut Criterion) {
 
   const NEEDLES: [u8; 10] = *b"0123456789";
 
-  one(c, &buf, "skip_ident", skip::skip_ident, is_ident);
-  one(c, &buf, "skip_digits", skip::skip_digits, is_digit);
-  one(c, &buf, "skip_whitespace", skip::skip_whitespace, is_space);
-  one(c, &buf, "skip_alpha", skip::skip_alpha, |b| {
-    b.is_ascii_alphabetic()
-  });
-  one(c, &buf, "skip_hex_digits", skip::skip_hex_digits, |b| {
-    b.is_ascii_hexdigit()
-  });
+  // ── lexer_sweep: ASCII-class scanners only ─────────────────────────────────
+  //
+  // These are the `skip_ascii_class!` kernels, and they are the only scanners
+  // whose scalar probe is sized by `CLASS_PROBE`. The probe-sweep workflow
+  // selects this group by name and `ci/probe_sweep.py` cross-checks every row
+  // in it against the macro invocations the kernels are generated from, so a
+  // scanner that does not read the constant must not be filed here — its noise
+  // would be scored as probe-width evidence and would widen the spread the
+  // report thresholds against.
   one(
     c,
+    "lexer_sweep",
+    &buf,
+    "skip_ident",
+    skip::skip_ident,
+    is_ident,
+  );
+  one(
+    c,
+    "lexer_sweep",
+    &buf,
+    "skip_digits",
+    skip::skip_digits,
+    is_digit,
+  );
+  one(
+    c,
+    "lexer_sweep",
+    &buf,
+    "skip_whitespace",
+    skip::skip_whitespace,
+    is_space,
+  );
+  one(
+    c,
+    "lexer_sweep",
+    &buf,
+    "skip_alpha",
+    skip::skip_alpha,
+    |b| b.is_ascii_alphabetic(),
+  );
+  one(
+    c,
+    "lexer_sweep",
+    &buf,
+    "skip_hex_digits",
+    skip::skip_hex_digits,
+    |b| b.is_ascii_hexdigit(),
+  );
+
+  // ── generic_sweep: the multi-needle scanners ───────────────────────────────
+  //
+  // `skip_while` and `skip_until` still probe a whole `CHUNK` and never consult
+  // `CLASS_PROBE`, so the sweep cannot move them. They stay benched — they were
+  // the evidence that the defect is specific to the class kernels rather than
+  // general to the dispatcher — but under a group name the sweep does not
+  // select.
+  one(
+    c,
+    "generic_sweep",
     &buf,
     "skip_while_10",
     |s| skip::skip_while(s, NEEDLES),
@@ -348,6 +417,7 @@ fn bench_lexer_sweep(c: &mut Criterion) {
   );
   one(
     c,
+    "generic_sweep",
     &buf,
     "skip_until_newline",
     skip::skip_until_newline,

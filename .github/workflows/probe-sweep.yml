@@ -24,8 +24,22 @@ name: probe-sweep
 # There is also nothing here to gate *against*: a sweep has no before/after,
 # only a set of widths. The job writes a table to the run summary and uploads
 # the raw criterion estimates; `ci/probe_sweep.py` marks a width only when it
-# beats the shipped one by more than the round-to-round spread measured in that
-# same run.
+# beats the shipped one by more than the round-to-round spread measured for that
+# same row.
+#
+# It does fail, loudly, on anything structural: a swept scanner that the backend
+# does not generate with `skip_ascii_class!` and so cannot respond to the
+# constant, or an expected class x probe x round result that is absent. A
+# reporter that silently drops a row looks exactly like a clean run.
+#
+# # Why the bench filter is `lexer_sweep` and not the whole bench
+#
+# `CLASS_PROBE` sizes the scalar probe inside `skip_ascii_class!` and nowhere
+# else: `skip_while` and `skip_until` still probe a whole chunk. `short_run.rs`
+# keeps those two in a separate `generic_sweep` group so they are outside both
+# this filter and the spread the report thresholds against — otherwise their
+# noise would compete for the "best" column and could bury a real signal from a
+# scanner the constant does move.
 #
 # # Why AVX-512 is conditional, and why SDE is not used to time it
 #
@@ -179,6 +193,7 @@ jobs:
             echo
             python3 ci/probe_sweep.py \
               --criterion-home "${{ github.workspace }}/criterion-sweep" \
+              --repo-root "${{ github.workspace }}" \
               --tier "${{ matrix.tier }}" \
               --default-probe "${{ matrix.default_probe }}" \
               --probes "${{ matrix.probes }}" \
