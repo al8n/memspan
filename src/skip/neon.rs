@@ -4,6 +4,53 @@ use crate::Needles;
 
 const NEON_CHUNK_SIZE: usize = 16;
 
+/// Bytes the ASCII-class kernels classify scalar before entering the vector
+/// loop.
+///
+/// # Why a probe at all
+///
+/// A lexer hands `skip_*` the rest of the document and asks about a run that is
+/// usually three to twenty bytes long, so the dispatcher's length threshold
+/// never fires. Answering such a run with the vector loop costs two serialized
+/// `vshrn` + `vget_lane` SIMD→GPR transfers to learn something a handful of
+/// scalar compares already knew. Deleting the probe outright measures 6-11x
+/// slower on `benches/short_run.rs`'s `lexer_sweep`, so the probe stays.
+///
+/// # Why it is shorter than a chunk
+///
+/// The probe scans a slice of compile-time-constant length, so LLVM fully
+/// unrolls it into one straight-line copy of the predicate per byte. Only the
+/// first copy keeps the flat, if-converted `cmp`/`ccmn` form; from the second
+/// onward LLVM threads the previous byte's outcome and rebuilds each copy as a
+/// short-circuit **branch tree**, up to three conditional branches per byte,
+/// each at its own address with its own prediction history. Run lengths vary
+/// from token to token in real input, so a lexer enters a different copy every
+/// call and mispredicts in all of them. Reshaping the predicate does not help:
+/// `||`, a `matches!` range and a non-short-circuiting fold over an array all
+/// produce byte-identical machine code.
+///
+/// Shortening the probe is what does help, because it caps how many of those
+/// trees exist. Measured on `lexer_sweep`, two interleaved rounds per setting,
+/// as a ratio to a plain scalar `position` loop:
+///
+/// | probe | `skip_ident` | `skip_alpha` | `skip_hex_digits` | long runs |
+/// |-------|--------------|--------------|-------------------|-----------|
+/// | 16    | 1.87x        | 1.05x        | 1.14x             | baseline  |
+/// | **8** | **1.01x**    | 1.09x        | 1.21x             | +0.2-1.3% |
+/// | 4     | 1.64x        | 2.12x        | 1.23x             | -         |
+///
+/// Eight halves the branch trees while still answering the runs a lexer
+/// actually produces; four gives back more to the vector path than it saves,
+/// because runs of four to eight bytes then pay the transfer after all. The
+/// long-run population — the shape the threshold was tuned for — moves by less
+/// than round-to-round noise, so the trade costs it nothing.
+///
+/// The same unrolling happens in the SSE4.2, AVX2 and AVX-512 kernels, where
+/// the constant is 16, 32 and 64, so the defect is very likely worse there.
+/// This host is aarch64 and cannot run those backends, and an untested tuning
+/// constant is worth less than a measured one, so they are left alone.
+const CLASS_PROBE: usize = 8;
+
 /// Pack a 16-byte byte-mask (`0xFF`/`0x00` per lane) into a `u64` where each
 /// 4-bit nibble represents one lane. The first matching lane is then at bit
 /// position `bits.trailing_zeros() & !3`, i.e. lane index `tz / 4`.
@@ -156,15 +203,20 @@ macro_rules! skip_ascii_class {
 
       let ptr = input.as_ptr();
 
-      // Most lexer numeric tokens are short. Probe one chunk scalar first so
-      // a 1–15 byte number pays only a cheap early-exit loop, not a SIMD load
-      // plus mask extraction.
-      let first_chunk_len = super::$prefix_len(&input[..NEON_CHUNK_SIZE]);
-      if first_chunk_len != NEON_CHUNK_SIZE {
-        return first_chunk_len;
+      // Most lexer tokens are short. Probe scalar first so a run that ends
+      // inside the probe pays only a cheap early-exit loop, not a SIMD load
+      // plus mask extraction. See `CLASS_PROBE` for the length.
+      let probed = super::$prefix_len(&input[..CLASS_PROBE]);
+      if probed != CLASS_PROBE {
+        return probed;
       }
 
-      let mut cur = NEON_CHUNK_SIZE;
+      // The probe is narrower than a chunk, so it cannot be credited against
+      // the vector loop's chunk grid; the loop restarts at zero and re-reads
+      // the probed bytes. That costs one masked compare on a scan that is
+      // about to cover kilobytes, and it keeps the loop's alignment and its
+      // overlap-tail arithmetic exactly as they were.
+      let mut cur = 0;
 
       // 2× unrolled main loop: AND both 16-byte match masks; if the AND is
       // all-ones both chunks are clean. One vget_lane_u64 covers 32 bytes,
