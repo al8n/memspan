@@ -23,9 +23,9 @@ name: probe-sweep
 # A perf comparison on shared runners flakes, and a flaky gate gets ignored.
 # There is also nothing here to gate *against*: a sweep has no before/after,
 # only a set of widths. The job writes a table to the run summary and uploads
-# the raw criterion estimates; `ci/probe_sweep.py` marks a width only when it
-# beats the shipped one by more than the round-to-round spread measured for that
-# same row.
+# the raw criterion estimates. `ci/probe_sweep.py` renders those measurements
+# and passes no judgement on them: it marks no winner and applies no bar. Which
+# width to adopt is left to whoever reads the table.
 #
 # It does fail, loudly, on anything structural: a swept scanner that the backend
 # does not generate with `skip_ascii_class!` and so cannot respond to the
@@ -37,9 +37,8 @@ name: probe-sweep
 # `CLASS_PROBE` sizes the scalar probe inside `skip_ascii_class!` and nowhere
 # else: `skip_while` and `skip_until` still probe a whole chunk. `short_run.rs`
 # keeps those two in a separate `generic_sweep` group so they are outside both
-# this filter and the spread the report thresholds against — otherwise their
-# noise would compete for the "best" column and could bury a real signal from a
-# scanner the constant does move.
+# this filter — a row the constant cannot move is not evidence about it, however
+# much work its scanner does.
 #
 # # Why AVX-512 is conditional, and why SDE is not used to time it
 #
@@ -119,6 +118,18 @@ jobs:
       # hand, never against output the reporter produced.
       - name: Check the reporter against its fixtures
         run: python3 ci/test_probe_sweep.py
+
+      # A passing suite says nothing on its own; what matters is that it would
+      # fail. This breaks the reporter five ways and requires each break to be
+      # caught, asserting anchor uniqueness and a changed file hash first so a
+      # mutation that silently fails to land cannot be read as coverage.
+      - name: Check the fixtures actually bite
+        run: python3 ci/check_fixtures_bite.py
+
+      # The reporter makes no verdicts, and the reason is a measurement rather
+      # than an opinion. This rederives it from the recorded data.
+      - name: Check the no-verdict justification still holds
+        run: python3 ci/check_uncertainty.py
 
       - name: Check whether this runner has ${{ matrix.tier }}
         id: cpu
@@ -213,13 +224,13 @@ jobs:
       # rendered table is licensed by `corpus-profile.json` — the histogram of
       # what each class's corpus actually made the scanner do — and that file
       # was not in the artifact, so anyone reading the artifact by itself saw
-      # verdicts with no way to check whether a row reached the widths it was
-      # scored on. That is the reporting gap this workflow exists to close,
-      # reproduced one level out in its own output.
+      # a reach column with no way to check whether a row's corpus could tell
+      # the compared widths apart. That is the reporting gap this workflow
+      # exists to close, reproduced one level out in its own output.
       #
       # The path is now the whole directory: the estimates, both corpus
-      # profiles, and the rendered summary. A reader can re-derive every verdict
-      # from the artifact without access to the runner.
+      # profiles, and the rendered summary. A reader can re-derive every number
+      # in the table from the artifact without access to the runner.
       - name: Upload the sweep, its corpus profiles, and the rendered summary
         if: steps.cpu.outputs.available == 'true'
         uses: actions/upload-artifact@v7

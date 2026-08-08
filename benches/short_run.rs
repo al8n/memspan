@@ -27,9 +27,8 @@
 //! * `generic_sweep/*` — `skip_while` and `skip_until`, which probe a whole
 //!   chunk and never read `CLASS_PROBE`. Kept because they are the evidence
 //!   that the probe-width defect is specific to the class kernels rather than
-//!   general to the dispatcher, but held out of the sweep: a row the sweep
-//!   cannot move contributes only noise, and that noise would widen the spread
-//!   the report thresholds against.
+//!   general to the dispatcher, but held out of the sweep: a row the constant
+//!   cannot move is not evidence about it.
 //!
 //! Three implementations are compared on both populations:
 //!
@@ -310,36 +309,43 @@ fn sweep(buf: &[u8], scan: impl Fn(&[u8]) -> usize) -> usize {
 /// in any caller, and rows must not be added up into a preference across
 /// classes. `ci/probe_sweep.py` prints that scope with every table.
 ///
-/// # Why it varies, and why it is longer than a lexer
+/// # Why it varies, and how long it has to be
 ///
 /// It varies within one corpus because a single run length predicts every
 /// branch in the scanner perfectly and cannot see the mispredict cost the probe
 /// width exists to control.
 ///
-/// It is longer than real lexer input because it has to be. A probe width `w`
-/// only changes behaviour for runs of at least `w` bytes: below that the scalar
-/// probe answers and every width behaves identically. The workflow compares
-/// widths up to 64 on AVX-512, so a corpus that never produces a 64-byte run
-/// cannot distinguish the widths it is being asked about — the timings would be
-/// real, complete, and silent on the question. The mean here is 10.8 against a
-/// lexer's 1.8, and that gap is the price of being able to answer at all.
+/// How long it has to be is **derived, not chosen**. Two probe widths diverge
+/// on runs of at least `min(shipped, candidate)` bytes: below that both answer
+/// from the scalar probe, and at or above it the narrower one has handed off to
+/// the vector loop while the wider one has not. Across the workflow's three
+/// matrices the widest such threshold is 32 — `avx512` comparing its shipped 64
+/// against a candidate 32 — so the corpus needs runs reaching 32 and nothing
+/// beyond that serves any comparison at all.
 ///
-/// `ci/probe_sweep.py` enforces the connection rather than trusting this
-/// comment: it counts, per class, how many calls reach each width under
-/// comparison and refuses to score a row where any of them is rare. The
-/// previous schedule reached 64 bytes on 2.5% of calls and would now be
-/// rejected for the AVX-512 matrix.
+/// | tier | shipped | candidates | thresholds | needs |
+/// |------|---------|------------|------------|-------|
+/// | `sse42`  | 16 | 8, 4      | 8, 4       | >= 8  |
+/// | `avx2`   | 32 | 16, 8, 4  | 16, 8, 4   | >= 16 |
+/// | `avx512` | 64 | 32, 16, 8 | 32, 16, 8  | >= 32 |
+///
+/// An earlier version of this schedule ran to 96 bytes, because the reach check
+/// then demanded a call reaching *every compared width* rather than each
+/// shipped-versus-candidate pair. That was the wrong quantifier, and it bought
+/// its extra length with realism: mean 10.8 against a lexer's 1.8. With the
+/// pair thresholds above, the longest useful run is 48 and the mean is 6.4.
 ///
 /// The weighting is decision-sensitive and was got wrong once: an earlier
 /// version cycled each length equally, giving a mean of 17.4, and on it probe 16
 /// beat probe 8 on fourteen of fifteen classes — the reverse of the shipped
-/// decision. Widening the runs widens the answer.
+/// decision. Widening the runs widens the answer, which is why the length is
+/// now pinned to what the comparisons require instead of to a preference.
 #[rustfmt::skip]
 const RUN_SCHEDULE: [usize; 40] = [
   0,  1, 0,  8, 0, 2, 0, 33, 0,  3,
-  0, 16, 0,  4, 0, 64, 0, 5, 0, 12,
-  0,  2, 0, 48, 0, 3, 0, 20, 0,  1,
-  0, 80, 0,  4, 0, 24, 0, 5, 0, 96,
+  0, 16, 0,  4, 0, 40, 0, 5, 0, 12,
+  0,  2, 0, 20, 0, 3, 0,  9, 0,  1,
+  0, 48, 0,  4, 0, 24, 0, 5, 0, 17,
 ];
 
 /// Benches every `skip_ascii_class!` kernel under the `lexer_sweep` group.

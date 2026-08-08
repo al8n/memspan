@@ -1,0 +1,188 @@
+{
+  "_bench": "cargo bench --bench short_run -- 'lexer_sweep', criterion sample-size 40",
+  "_host": "Apple M4 Pro, aarch64-apple-darwin, non-idle",
+  "_what": "Two rounds of the same benchmark at probe 8, taken back to back on one host.",
+  "_why": "Recorded so the claim in ci/probe_sweep.py -- that Criterion's within-run confidence interval understates the uncertainty this design actually has -- can be recomputed instead of believed. ci/check_uncertainty.py regenerates it.",
+  "measurements": {
+    "lexer_sweep_skip_alpha": {
+      "round1": {
+        "ci_hi": 13176.128064200862,
+        "ci_lo": 13084.872910353126,
+        "point": 13132.514795539522
+      },
+      "round2": {
+        "ci_hi": 13210.39889600484,
+        "ci_lo": 13175.378877648496,
+        "point": 13190.802109469756
+      }
+    },
+    "lexer_sweep_skip_alphanumeric": {
+      "round1": {
+        "ci_hi": 14997.631328149162,
+        "ci_lo": 14915.26416759199,
+        "point": 14948.990127507564
+      },
+      "round2": {
+        "ci_hi": 14994.967532207293,
+        "ci_lo": 14946.480969198077,
+        "point": 14969.432570680427
+      }
+    },
+    "lexer_sweep_skip_ascii": {
+      "round1": {
+        "ci_hi": 12795.645338018187,
+        "ci_lo": 11545.210922045047,
+        "point": 12101.65344079977
+      },
+      "round2": {
+        "ci_hi": 11525.047040572736,
+        "ci_lo": 11482.522198548422,
+        "point": 11505.00877368487
+      }
+    },
+    "lexer_sweep_skip_ascii_control": {
+      "round1": {
+        "ci_hi": 12465.584307690802,
+        "ci_lo": 12406.389413221392,
+        "point": 12436.061565030283
+      },
+      "round2": {
+        "ci_hi": 12494.94370374365,
+        "ci_lo": 12441.492218519674,
+        "point": 12467.25539131487
+      }
+    },
+    "lexer_sweep_skip_ascii_graphic": {
+      "round1": {
+        "ci_hi": 12335.60401297644,
+        "ci_lo": 12306.133370309984,
+        "point": 12321.21168913176
+      },
+      "round2": {
+        "ci_hi": 12326.543416702087,
+        "ci_lo": 12300.617710108627,
+        "point": 12313.562560951941
+      }
+    },
+    "lexer_sweep_skip_binary": {
+      "round1": {
+        "ci_hi": 12308.201257249439,
+        "ci_lo": 12275.089566434563,
+        "point": 12291.296848823007
+      },
+      "round2": {
+        "ci_hi": 12657.942604020382,
+        "ci_lo": 12480.230992591889,
+        "point": 12564.146878740776
+      }
+    },
+    "lexer_sweep_skip_digits": {
+      "round1": {
+        "ci_hi": 12296.388073901759,
+        "ci_lo": 12212.26896558752,
+        "point": 12254.62803862939
+      },
+      "round2": {
+        "ci_hi": 12327.019356814606,
+        "ci_lo": 12265.063357120884,
+        "point": 12294.31169714832
+      }
+    },
+    "lexer_sweep_skip_hex_digits": {
+      "round1": {
+        "ci_hi": 15036.763669268534,
+        "ci_lo": 14960.445641233146,
+        "point": 14997.09598635874
+      },
+      "round2": {
+        "ci_hi": 15717.36911516045,
+        "ci_lo": 15091.432127732873,
+        "point": 15348.432684048417
+      }
+    },
+    "lexer_sweep_skip_ident": {
+      "round1": {
+        "ci_hi": 14949.499174100307,
+        "ci_lo": 14813.68612030819,
+        "point": 14881.98546512191
+      },
+      "round2": {
+        "ci_hi": 15090.522673711026,
+        "ci_lo": 15032.042541872097,
+        "point": 15060.87614329521
+      }
+    },
+    "lexer_sweep_skip_ident_start": {
+      "round1": {
+        "ci_hi": 13970.432255031323,
+        "ci_lo": 13859.463991156783,
+        "point": 13915.747679484586
+      },
+      "round2": {
+        "ci_hi": 14099.090126798095,
+        "ci_lo": 14030.765502061635,
+        "point": 14063.462430313011
+      }
+    },
+    "lexer_sweep_skip_lower": {
+      "round1": {
+        "ci_hi": 12252.36702837645,
+        "ci_lo": 12143.517204993734,
+        "point": 12196.799231337314
+      },
+      "round2": {
+        "ci_hi": 12428.774207078559,
+        "ci_lo": 12364.387690192647,
+        "point": 12396.704820987272
+      }
+    },
+    "lexer_sweep_skip_non_ascii": {
+      "round1": {
+        "ci_hi": 11398.234345626403,
+        "ci_lo": 11345.388453420137,
+        "point": 11372.048553017044
+      },
+      "round2": {
+        "ci_hi": 11444.305069650443,
+        "ci_lo": 11407.533175790797,
+        "point": 11425.74741380956
+      }
+    },
+    "lexer_sweep_skip_octal_digits": {
+      "round1": {
+        "ci_hi": 12334.467623071507,
+        "ci_lo": 12283.590803260895,
+        "point": 12307.074348136191
+      },
+      "round2": {
+        "ci_hi": 12335.46702056047,
+        "ci_lo": 12302.525185882627,
+        "point": 12318.794898652674
+      }
+    },
+    "lexer_sweep_skip_upper": {
+      "round1": {
+        "ci_hi": 12272.371584860886,
+        "ci_lo": 12242.236332193737,
+        "point": 12257.951544238298
+      },
+      "round2": {
+        "ci_hi": 12374.48227710679,
+        "ci_lo": 12321.171081357408,
+        "point": 12346.41462895647
+      }
+    },
+    "lexer_sweep_skip_whitespace": {
+      "round1": {
+        "ci_hi": 14262.22218442669,
+        "ci_lo": 14213.712578183578,
+        "point": 14237.819445813435
+      },
+      "round2": {
+        "ci_hi": 15040.754740212087,
+        "ci_lo": 14638.13896960728,
+        "point": 14806.57300044141
+      }
+    }
+  }
+}

@@ -88,15 +88,15 @@ def build(home: str, ratios: dict[str, dict[int, list[float]]], profile: dict) -
         json.dump(profile, handle)
 
 
-def run(home: str) -> tuple[int, str]:
+def run(home: str, default_probe: str = "8", probes: str = "16,8") -> tuple[int, str]:
     proc = subprocess.run(
         [
             sys.executable, REPORTER,
             "--criterion-home", home,
             "--repo-root", REPO,
             "--tier", "neon",
-            "--default-probe", "8",
-            "--probes", "16,8",
+            "--default-probe", default_probe,
+            "--probes", probes,
             "--rounds", "2",
         ],
         capture_output=True,
@@ -137,7 +137,7 @@ def fixture_negative_gain() -> None:
         code, out = run(home)
         expected = (
             "| `skip_ident` | 0.72 (0.72/0.72) | 0.68 (0.68/0.68) "
-            "| -6% @ 16 | 500 (10.0%) | +/-0% |"
+            "| -6% @ 16 | 500 (10.0%) >=8b | +/-0% |"
         )
         check("negative gain: exits 0", code == 0, out[-400:])
         check("negative gain: row is literal", expected in out,
@@ -164,7 +164,7 @@ def fixture_noisy_negative_gain() -> None:
         code, out = run(home)
         expected = (
             "| `skip_lower` | 0.90 (0.90/0.90) | 0.70 (0.60/0.80) "
-            "| -29% @ 16 | 500 (10.0%) | +/-29% |"
+            "| -29% @ 16 | 500 (10.0%) >=8b | +/-29% |"
         )
         check("noisy negative gain: exits 0", code == 0, out[-400:])
         check("noisy negative gain: row is literal", expected in out,
@@ -224,6 +224,73 @@ def fixture_tiny_reach_is_reported_not_refused() -> None:
         shutil.rmtree(home, ignore_errors=True)
 
 
+def fixture_runs_between_the_widths_are_the_best_evidence() -> None:
+    """Runs of 8..15 distinguish 8 from 16 and never reach 16. They must render.
+
+    This is the regression that a per-*width* reach check introduced. Comparing
+    shipped 8 against candidate 16, a 12-byte run is the most informative call
+    there is: width 8 has handed off to the vector loop while width 16 is still
+    answering from its scalar probe. A check demanding a call reach 16 threw
+    exactly those rows away, and would have pushed the corpus toward
+    manufacturing long runs to satisfy the wider width alone.
+
+    Hand-derived: every one of the 4000 calls advances 12 bytes, so all 4000
+    distinguish the pair at min(8, 16) = 8, which is 100.0% and prints as
+    ">=8b". The row must render and must not be refused.
+    """
+    home = tempfile.mkdtemp()
+    try:
+        profile = dict(HEALTHY)
+        profile["skip_alpha"] = {
+            "calls": 4000,
+            "buf_len": 1048576,
+            "advances": {"12": 4000},
+        }
+        build(home, {}, profile)
+        code, out = run(home)
+        check("between-widths: exits 0", code == 0, out[-500:])
+        check("between-widths: reach measured at min(8,16)=8",
+              "4000 (100.0%) >=8b" in out,
+              "expected the substring '4000 (100.0%) >=8b'")
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def fixture_reach_belongs_to_the_pair_that_produced_the_gain() -> None:
+    """With three widths the pairs have different reach; the right one must show.
+
+    Two probes leave only one pair, so any bug that reports some *other* pair's
+    reach is invisible. This fixture uses three. Shipped 32 against candidates
+    16 and 8 gives thresholds min(32,16)=16 and min(32,8)=8, and a corpus of
+    3000 calls at 4 bytes, 1000 at 10 and 1000 at 20 separates them: 1000 calls
+    reach 16, but 2000 reach 8.
+
+    Probe 8 is made the faster candidate, so the gain shown belongs to the
+    32-vs-8 pair and the reach beside it must be that pair's 2000 (40.0%) >=8b —
+    not the row's smallest, which is the unrelated 1000 (20.0%) >=16b.
+
+    Hand-derived: shipped 32 at 1.00, probe 8 at 0.70, probe 16 at 0.90. Best
+    gain is (1.00-0.70)/1.00 = +30% at 8. All rounds identical, so spread 0%.
+    """
+    home = tempfile.mkdtemp()
+    try:
+        profile = {
+            c: {"calls": 5000, "buf_len": 1048576,
+                "advances": {"4": 3000, "10": 1000, "20": 1000}}
+            for c in CLASSES
+        }
+        ratios = {c: {32: [1.0, 1.0], 16: [0.9, 0.9], 8: [0.7, 0.7]} for c in CLASSES}
+        build(home, ratios, profile)
+        code, out = run(home, default_probe="32", probes="32,16,8")
+        check("pair reach: exits 0", code == 0, out[-500:])
+        check("pair reach: shows the gain pair's reach", "+30% @ 8 | 2000 (40.0%) >=8b" in out,
+              "expected '+30% @ 8 | 2000 (40.0%) >=8b'")
+        check("pair reach: not the row's smallest", "1000 (20.0%) >=16b" not in out,
+              "the unrelated pair's reach must not be reported")
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
 def fixture_zero_reach_is_refused() -> None:
     """Zero reaching calls is a deduction, not a threshold: it must refuse."""
     home = tempfile.mkdtemp()
@@ -238,7 +305,9 @@ def fixture_zero_reach_is_refused() -> None:
         code, out = run(home)
         check("zero reach: exits 1", code == 1, f"got {code}")
         check("zero reach: names the class", "`skip_digits`" in out)
-        check("zero reach: names the width", "width 16" in out or "width 8" in out)
+        check("zero reach: names the pair and its threshold",
+              "probe 16 vs shipped 8 diverge only on runs of at least 8 bytes" in out,
+              "expected the pair and the min() threshold to be named")
     finally:
         shutil.rmtree(home, ignore_errors=True)
 
@@ -280,6 +349,8 @@ def main() -> int:
         fixture_noisy_negative_gain,
         fixture_small_reach_is_reported_not_refused,
         fixture_tiny_reach_is_reported_not_refused,
+        fixture_runs_between_the_widths_are_the_best_evidence,
+        fixture_reach_belongs_to_the_pair_that_produced_the_gain,
         fixture_zero_reach_is_refused,
         fixture_single_call_is_refused,
         fixture_missing_profile_is_refused,

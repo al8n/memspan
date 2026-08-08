@@ -10,12 +10,10 @@ Three properties this deliberately keeps:
 
 * **Only scanners the constant can actually move are scored.** `CLASS_PROBE`
   sizes the scalar probe in `skip_ascii_class!` and nowhere else; `skip_while`
-  and `skip_until` still probe a whole chunk. A row that cannot respond to the
-  sweep contributes nothing but noise, and that noise would both compete for the
-  "best" column and widen the spread the report thresholds against — burying a
-  real signal from a scanner that *is* affected. The bench keeps those scanners
-  in a separate `generic_sweep` group and this script refuses to score anything
-  outside the class list.
+  and `skip_until` still probe a whole chunk. A row the constant cannot move is
+  not evidence about it, whatever its timings say. The bench keeps those
+  scanners in a separate `generic_sweep` group and this script refuses to score
+  anything outside the class list.
 
 * **Both lists are derived, never typed.** The classes come from the
   `skip_ascii_class!` invocations that generate the kernels and from the
@@ -162,8 +160,10 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 #    person deciding whether to tune a constant.
 # 2. Criterion's own confidence interval cannot ground a threshold here. On the
 #    reference run, between-round drift exceeded the within-run CI half-width in
-#    10 of 15 benchmarks, by up to 16.5x, so a bar built on those intervals would
+#    10 of 15 benchmarks, by up to 23.4x, so a bar built on those intervals would
 #    declare differences real in two thirds of rows where a re-run disagrees.
+#    Recorded in `ci/reference/round-drift.json`; `ci/check_uncertainty.py`
+#    rederives these counts and fails if they no longer hold.
 # 3. Between-round variance cannot ground one either: the design is two rounds,
 #    which leaves one degree of freedom. A credible power model needs many more
 #    rounds, and that multiplies the job's cost by the same factor.
@@ -174,8 +174,8 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 
 
 def require_structure(
-    criterion_home: str, expected: set[str], probes: list[int]
-) -> dict[str, dict[int, tuple[int, float]]]:
+    criterion_home: str, expected: set[str], probes: list[int], default_probe: int
+) -> dict[str, dict[int, tuple[int, float, int]]]:
     """Refuse to publish a row that provably cannot say anything.
 
     Two refusals, both deductive:
@@ -233,19 +233,37 @@ def require_structure(
             )
             continue
 
+        # Reach is a property of a *pair*, not of a width. Two widths diverge on
+        # runs of at least min(shipped, candidate): the narrower one has already
+        # handed off to the vector loop while the wider one is still answering
+        # from its scalar probe. Comparing 8 against 16, a run of 12 bytes is
+        # therefore the most informative call there is, and requiring a call to
+        # reach 16 would throw it away.
+        #
+        # An earlier version of this check quantified over every width instead
+        # of over each pair. It rejected exactly the corpora that distinguish
+        # the widths best, and it pushed toward manufacturing long runs to
+        # satisfy the widest width alone — the corpus-realism problem this
+        # workflow already has, arriving from the other side. Deleting a chosen
+        # number does not remove the obligation to quantify over the right set.
         reach[name] = {}
-        thin: list[str] = []
-        for width in probes:
-            hits = sum(count for length, count in advances.items() if length >= width)
-            fraction = hits / calls
-            reach[name][width] = (hits, fraction)
+        empty: list[str] = []
+        for candidate in probes:
+            if candidate == default_probe:
+                continue
+            threshold = min(default_probe, candidate)
+            hits = sum(count for length, count in advances.items() if length >= threshold)
+            reach[name][candidate] = (hits, hits / calls, threshold)
             if hits == 0:
-                thin.append(
-                    f"no call reaches width {width} (longest run is shorter), so "
-                    f"every compared width ran identical code on all {calls} calls"
+                empty.append(
+                    f"probe {candidate} vs shipped {default_probe} diverge only on "
+                    f"runs of at least {threshold} bytes, and no call reaches that"
                 )
-        if thin:
-            failures.append(f"`{name}`: " + "; ".join(thin))
+
+        # Reject the row only when *no* pair can say anything. A single dead
+        # pair is marked in its own cell and left to the reader.
+        if empty and len(empty) == len(reach[name]):
+            failures.append(f"`{name}`: " + "; ".join(empty))
 
     if failures:
         die(
@@ -362,7 +380,9 @@ def main() -> int:
     # The corpus profile is the bench's record of what it actually walked, and
     # it is computed with the scalar predicate rather than with the library, so
     # a broken kernel cannot make a dead corpus look alive.
-    reach = require_structure(args.criterion_home, expected, probes)
+    reach = require_structure(
+        args.criterion_home, expected, probes, args.default_probe
+    )
 
     # Every expected cell must exist, with both series the ratio needs. A filter
     # that matched nothing, a build that silently produced no bench, or a run
@@ -457,19 +477,31 @@ def main() -> int:
         # "not evidence for the shipped width" — destroying a shipped-wins
         # result rather than withholding an undecided one. A negative gain is
         # now simply reported as negative.
-        candidates = [p for p in probes if p != args.default_probe]
-        best = max(candidates, key=lambda p: (shipped_mean - ratios[name][p]) / shipped_mean)
+        # Only pairs with a distinguishing population can produce a gain. A
+        # pair with none is marked in its own cell rather than silently
+        # averaged into the row.
+        live = [p for p in probes if p != args.default_probe and reach[name][p][0] > 0]
+        cells = [
+            cell
+            if p == args.default_probe or reach[name][p][0] > 0
+            else f"{cell} _(n/d)_"
+            for p, cell in zip(probes, cells)
+        ]
+
+        best = max(live, key=lambda p: (shipped_mean - ratios[name][p]) / shipped_mean)
         gain = (shipped_mean - ratios[name][best]) / shipped_mean
         pair_spread = max(shipped_spread, spread_of(name, best))
 
-        worst_width = min(probes, key=lambda p: reach[name][p][0])
-        worst_hits, worst_share = reach[name][worst_width]
+        # The reach reported is the one belonging to the pair that produced the
+        # gain shown, not the row's smallest — a number about a different
+        # comparison would not license this one.
+        hits, share, threshold = reach[name][best]
 
         print(
             f"| `{name}` | "
             + " | ".join(cells)
             + f" | {gain * 100:+.0f}% @ {best}"
-            + f" | {worst_hits} ({worst_share * 100:.1f}%)"
+            + f" | {hits} ({share * 100:.1f}%) >={threshold}b"
             + f" | +/-{pair_spread * 100:.0f}% |"
         )
 
