@@ -114,6 +114,12 @@ jobs:
       - name: Install Rust
         run: rustup update stable && rustup default stable
 
+      # The reporter decides what gets published, so it is checked before it is
+      # trusted. Its fixtures compare against literal expected rows written by
+      # hand, never against output the reporter produced.
+      - name: Check the reporter against its fixtures
+        run: python3 ci/test_probe_sweep.py
+
       - name: Check whether this runner has ${{ matrix.tier }}
         id: cpu
         run: |

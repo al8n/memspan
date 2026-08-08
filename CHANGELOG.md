@@ -63,17 +63,22 @@ PERFORMANCE
    - `--cfg memspan_class_probe="N"` is the measurement hook the sweep drives. It is not a
      tuning API: with the cfg unset every backend keeps the width it ships with, verified
      byte-identical in the generated code on x86_64 and aarch64.
-   - Correction to the table in entry 1: the `skip_whitespace` row (0.99x -> 1.00x) was not
-     meaningful evidence about probe width. On the PromQL corpus that class advances at most
-     one byte and takes only two distinct run lengths, so the scanner never reaches the code
-     the probe governs. The `skip_ident`, `skip_digits`, `skip_hex_digits` and `skip_alpha`
-     rows were genuinely exercised and stand; re-measured on the same corpus, `skip_ident`
-     reads 1.96x -> 1.08x against the 1.92x -> 1.03x reported. The narrowing itself is
-     unaffected — it was decided on `skip_ident`.
-   - The sweep bench builds a corpus per class, and the reporter refuses to score a row
-     whose corpus cannot distinguish the widths that run is comparing — a width only
-     changes behaviour for runs at least that long, so a corpus of short runs is silent
-     about it however much work it does.
+   - Correction to the table in entry 1: three of its five rows are struck there, with the
+     counts that retract them. This bullet deliberately does not restate which — an earlier
+     revision did, said two of the struck rows "were genuinely exercised and stand", and
+     contradicted the table it was correcting. The table is the record; read it. What is
+     safe to add here is only what the table does not say: re-measured on the same corpus,
+     `skip_ident` reads 1.96x -> 1.08x against the 1.92x -> 1.03x reported, and the
+     narrowing was decided on that class.
+   - The sweep bench builds a corpus per class and profiles it. The reporter **renders**
+     those measurements and makes no pass/fail judgement about them: it prints each width's
+     ratio, its per-round values, its gain against the shipped width and the spread of that
+     pair, and how many calls could distinguish the widths at all. Choosing a width is left
+     to whoever reads it.
+   - It still refuses to publish a row it can prove is empty: a class whose corpus produces
+     **zero** calls reaching a compared width cannot distinguish those widths, because both
+     execute identical code on every call. That is a deduction from a count of zero, not a
+     threshold.
    - The sweep reports **pairwise** results under one shared synthetic schedule. It does not
      rank widths and its rows must not be added up across classes: the schedule's shape was
      derived from two classes and reused for all fifteen, and it is decision-sensitive

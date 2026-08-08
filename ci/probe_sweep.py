@@ -141,44 +141,61 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
     return out
 
 
-# A width `w` only changes behaviour for runs of at least `w` bytes: below that
-# the scalar probe answers and every compared width is the same code. A corpus
-# that never produces such a run is silent about the comparison however much
-# work it does, so the reaching calls are counted per class and per width.
+# What this script decides, and what it refuses to decide
+# =======================================================
 #
-# The floor is an absolute count, not a fraction, and that is a correction to an
-# earlier version of this check. The fraction floor was justified by the claim
-# that below 5% "95% of the measured time comes from calls where the widths are
-# identical" — which was assumed rather than measured, and is false. Per-call
-# cost is not uniform: the calls that reach a width are precisely the ones that
-# do the extra work, so a small share of calls can carry most of the difference.
+# It decides **structural** questions — did the run produce what it claims — and
+# it renders everything else. Every structural check below is a deduction from a
+# count of zero or one; none of them has a tunable number, because every tunable
+# number this reporter has carried was an unmeasured claim that a later review
+# had to withdraw. First a fraction ("below 5% reach, 95% of the measured time
+# is from identical calls"), then a count ("100 calls"). Both were asserted, and
+# the first would have rejected the evidence for a change that reproduces.
 #
-# The corpus behind the merged NEON narrowing shows it. `skip_ident` on the
-# PromQL fragment reaches width 8 on 950 of 22793 calls — 4.2%, below the old
-# floor — and those calls moved the measured ratio from 1.92x to 1.08x. A
-# fraction floor would have rejected the evidence for a change that reproduces.
+# Statistical questions — is this width faster, is that difference real — are
+# reported as measurements and left to the reader, for three reasons that were
+# checked rather than assumed:
 #
-# What a floor can honestly exclude is a distinguishing population too small to
-# have been sampled: zero reaching calls is provably silent, and a handful is
-# one outlier away from noise. The fraction is still reported, because a reader
-# weighing a row should see when its evidence rests on few calls.
-MIN_REACH_CALLS = 100
+# 1. Nothing consumes a verdict. The only machine reading this script is the
+#    workflow step that runs it, the workflow is dispatch-and-schedule only, and
+#    no merge or downstream job gates on it. Every consumer of the numbers is a
+#    person deciding whether to tune a constant.
+# 2. Criterion's own confidence interval cannot ground a threshold here. On the
+#    reference run, between-round drift exceeded the within-run CI half-width in
+#    10 of 15 benchmarks, by up to 16.5x, so a bar built on those intervals would
+#    declare differences real in two thirds of rows where a re-run disagrees.
+# 3. Between-round variance cannot ground one either: the design is two rounds,
+#    which leaves one degree of freedom. A credible power model needs many more
+#    rounds, and that multiplies the job's cost by the same factor.
+#
+# So the table carries the gain against the shipped width and the spread of the
+# pair that produced it, and stops there. A reader can apply whatever bar their
+# decision deserves; the script does not pick one on their behalf.
 
 
-def require_widths_exercised(
+def require_structure(
     criterion_home: str, expected: set[str], probes: list[int]
 ) -> dict[str, dict[int, tuple[int, float]]]:
-    """Refuse to score a class whose corpus cannot distinguish the compared widths.
+    """Refuse to publish a row that provably cannot say anything.
 
-    Non-vacuity is not enough, and that was the earlier mistake here. A corpus
-    with many calls and advances of 0/1/2/5 has plenty of work in it and is
-    still silent about a comparison between 8 and 64: every call returns from
-    the scalar probe under both. The predicate cannot be a property of the
-    distribution in the abstract — it has to be a count relative to the widths
-    actually under comparison, which is why the probe list is a parameter.
+    Two refusals, both deductive:
 
-    Returns the reach counts so the report can print them, because a reader
-    should be able to see how much of each row's evidence was on-topic.
+    * **zero reaching calls at a compared width.** A width `w` only changes
+      behaviour for runs of at least `w` bytes; below that the scalar probe
+      answers and every compared width is the same code. If no call reaches `w`,
+      the widths executed identical instructions on every single call and the
+      row's timing difference is unrelated variation. This is a count of zero,
+      not a threshold.
+    * **one call.** The bench's contract is a cursor stepping through a buffer;
+      one call means the cursor never moved and there is no run-length
+      distribution to speak of.
+
+    A small but non-zero reaching population is **not** refused. It is reported,
+    because whether few-but-expensive calls carry a difference is a judgement
+    about the workload, not a fact about the run: `skip_ident` reaches width 8
+    on 4.2% of its calls and those calls move its ratio from 1.92x to 1.08x.
+
+    Returns the reach counts so the table can print them.
     """
     path = os.path.join(criterion_home, PROFILE_FILE)
     if not os.path.exists(path):
@@ -222,21 +239,19 @@ def require_widths_exercised(
             hits = sum(count for length, count in advances.items() if length >= width)
             fraction = hits / calls
             reach[name][width] = (hits, fraction)
-            if hits < MIN_REACH_CALLS:
+            if hits == 0:
                 thin.append(
-                    f"width {width} reached by {hits}/{calls} calls "
-                    f"({fraction * 100:.1f}%)"
+                    f"no call reaches width {width} (longest run is shorter), so "
+                    f"every compared width ran identical code on all {calls} calls"
                 )
         if thin:
             failures.append(f"`{name}`: " + "; ".join(thin))
 
     if failures:
         die(
-            f"{len(failures)} scored row(s) cannot distinguish the widths this run "
-            "compares. A width only changes behaviour for runs at least that "
-            f"long, and fewer than {MIN_REACH_CALLS} calls reach the widths named "
-            "below, so those rows would report a timing with no sampled "
-            "population behind the comparison:\n\n"
+            f"{len(failures)} scored row(s) provably cannot distinguish the widths "
+            "this run compares, so publishing their timings would publish an "
+            "empty comparison:\n\n"
             + "\n".join(f"* {f}" for f in failures)
             + f"\n\nEither lengthen `RUN_SCHEDULE` in `{BENCH_SOURCE}` so the "
             "corpus produces runs at those widths, or compare narrower widths in "
@@ -347,7 +362,7 @@ def main() -> int:
     # The corpus profile is the bench's record of what it actually walked, and
     # it is computed with the scalar predicate rather than with the library, so
     # a broken kernel cannot make a dead corpus look alive.
-    reach = require_widths_exercised(args.criterion_home, expected, probes)
+    reach = require_structure(args.criterion_home, expected, probes)
 
     # Every expected cell must exist, with both series the ratio needs. A filter
     # that matched nothing, a build that silently produced no bench, or a run
@@ -410,7 +425,7 @@ def main() -> int:
             f"probe {p}{' (shipped)' if p == args.default_probe else ''}"
             for p in probes
         )
-        + " | beats shipped | reach | noise |"
+        + " | best gain vs shipped | reach | pair spread |"
     )
     print("|" + "---|" * (len(probes) + 4))
 
@@ -429,69 +444,50 @@ def main() -> int:
         shipped_mean = ratios[name][args.default_probe]
         shipped_spread = spread_of(name, args.default_probe)
 
-        # Each candidate is judged against the shipped width using only those
-        # two cells' noise. Taking the row's worst spread instead would let one
-        # bad round for an unrelated probe raise the bar for every comparison in
-        # the row and veto a genuine winner — the same contamination as scoring
-        # an unaffected scanner, one level further in. The 10% floor keeps a
-        # suspiciously quiet run from promoting a rounding difference.
-        winners: list[tuple[float, int]] = []
-        best_gain = float("-inf")
-        best_blocked_by_noise = False
-        deciding_noise = shipped_spread
-        for probe in probes:
-            if probe == args.default_probe:
-                continue
-            pair_noise = max(shipped_spread, spread_of(name, probe))
-            bar = max(0.10, pair_noise)
-            gain = (shipped_mean - ratios[name][probe]) / shipped_mean
-            if gain > bar:
-                winners.append((ratios[name][probe], probe))
-            if gain > best_gain:
-                # Whether the *strongest* candidate was stopped by measurement
-                # noise or by the floor is the difference between "we could not
-                # tell" and "the shipped width held". Only the first is noise.
-                best_gain = gain
-                best_blocked_by_noise = pair_noise > 0.10
-                deciding_noise = pair_noise
-
-        # Every candidate that cleared its own bar is listed. Picking the
-        # lowest point estimate among them would report a pairwise result — "is
-        # faster than the shipped width" — as an exact optimum, and two winners
-        # can differ from each other by less than either differs from shipped.
-        # This column answers only the question the comparison actually asked.
-        if winners:
-            mark = ", ".join(f"**{p}**" for _, p in sorted(winners, key=lambda w: w[1]))
-        elif best_blocked_by_noise:
-            mark = "_noisy_"
-        else:
-            mark = "none"
+        # The largest gain any candidate shows against the shipped width, with
+        # the spread of exactly that pair beside it. Both are arithmetic on the
+        # measurements. No bar is applied and no width is marked: a reader
+        # decides whether a gain of this size, at this spread, on this many
+        # distinguishing calls, is worth acting on.
+        #
+        # The previous version marked a winner and, when it could not, printed
+        # `_noisy_`. That marker was asymmetric: it fired from the top
+        # candidate's spread without requiring the candidate to be faster, so a
+        # row where every width was slower than shipped and noisy was labelled
+        # "not evidence for the shipped width" — destroying a shipped-wins
+        # result rather than withholding an undecided one. A negative gain is
+        # now simply reported as negative.
+        candidates = [p for p in probes if p != args.default_probe]
+        best = max(candidates, key=lambda p: (shipped_mean - ratios[name][p]) / shipped_mean)
+        gain = (shipped_mean - ratios[name][best]) / shipped_mean
+        pair_spread = max(shipped_spread, spread_of(name, best))
 
         worst_width = min(probes, key=lambda p: reach[name][p][0])
         worst_hits, worst_share = reach[name][worst_width]
+
         print(
             f"| `{name}` | "
             + " | ".join(cells)
-            + f" | {mark} | {worst_hits} ({worst_share * 100:.1f}%)"
-            + f" | +/-{deciding_noise * 100:.0f}% |"
+            + f" | {gain * 100:+.0f}% @ {best}"
+            + f" | {worst_hits} ({worst_share * 100:.1f}%)"
+            + f" | +/-{pair_spread * 100:.0f}% |"
         )
 
     print(
-        "\nEach cell is the mean followed by the individual rounds. *beats "
-        "shipped* lists **every** width that beat the shipped one by more than "
-        "the noise of those two cells alone, floored at 10%; it is a pairwise "
-        "result and deliberately not a ranking, because two listed widths may "
-        "differ from each other by less than either differs from shipped. "
-        "`none` means no width cleared that bar. `_noisy_` means the bar was set "
-        "by noise rather than by the floor, so this run could not decide — it is "
-        "**not** evidence for the shipped width. *reach* is the smallest "
-        "number of calls that reached any compared width, with its share of all "
-        f"calls; a row is refused when that count falls below {MIN_REACH_CALLS}. "
-        "A low share is a caution, not a defect: the calls that reach a width "
-        "are the ones that do the extra work, so a few percent of calls can "
-        "carry most of the difference. Across the "
-        f"whole table the spread was max {worst_spread * 100:.1f}%, median "
-        f"{median_spread * 100:.1f}%."
+        "\nEach cell is the mean followed by the individual rounds. *best gain vs "
+        "shipped* is the largest improvement any non-shipped width shows over the "
+        "shipped one, and which width that was; a **negative** value means every "
+        "width tested was slower than shipped, which is a result and not a "
+        "failure to find one. *pair spread* is the round-to-round spread of the "
+        "two cells that gain came from. *reach* is the smallest number of calls "
+        "that reached any compared width, with its share.\n\n"
+        "**This table makes no pass/fail claim and marks no winner.** Whether a "
+        "gain is worth acting on depends on how it compares to that pair's "
+        "spread, on how many calls could distinguish the widths at all, and on "
+        "which workload you care about — judgements this script cannot make for "
+        "you, and whose thresholds it has twice got wrong by asserting them. "
+        f"Across the whole table the spread was max {worst_spread * 100:.1f}%, "
+        f"median {median_spread * 100:.1f}%."
     )
 
     print(
@@ -503,12 +499,10 @@ def main() -> int:
         "the wider compared widths are reachable at all. A row is evidence about "
         "**this schedule**; it is not a measurement of how that class behaves in "
         "any caller.\n>\n> For the same reason these rows **must not be added up**. "
-        "Counting how many classes prefer a width would report the schedule's "
+        "Counting how many classes favour a width would report the schedule's "
         "weighting back as a property of the classes, and that weighting is "
         "decision-sensitive: an equal-weight version of it reversed the "
-        "preference on fourteen of fifteen rows. Treat each row as one pairwise "
-        "comparison under stated conditions, and treat any cross-class "
-        "conclusion as unsupported by this table."
+        "direction on fourteen of fifteen rows."
     )
 
     return 0
