@@ -55,6 +55,10 @@ BACKEND_SOURCES = {
 
 BENCH_SOURCE = "benches/short_run.rs"
 
+# Written by the bench beside the criterion results: what the sweep corpus
+# actually made each scanner do. See `require_non_vacuous`.
+PROFILE_FILE = "corpus-profile.json"
+
 KERNEL_RE = re.compile(r"skip_ascii_class!\(\s*([A-Za-z0-9_]+)\s*,", re.S)
 SWEPT_RE = re.compile(r'\(\s*"(skip_[a-z0-9_]+)"\s*,\s*skip::', re.S)
 
@@ -113,6 +117,77 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
         with open(estimates) as handle:
             out[rel] = json.load(handle)["mean"]["point_estimate"]
     return out
+
+
+def require_non_vacuous(criterion_home: str, expected: set[str]) -> None:
+    """Refuse to score a class whose corpus never exercised the probe.
+
+    Three ways a row can exist and mean nothing:
+
+    * **every advance is zero** — no byte of the corpus is in the class, so the
+      scanner returns at the first byte on every call and never reaches the code
+      the probe width governs;
+    * **one all-match tail** — the whole corpus is in the class, so the sweep
+      makes a single call and the run length is the buffer, not a lexer's token;
+    * **no variation** — the run lengths barely differ, so every branch in the
+      scanner is perfectly predicted and the mispredict cost the probe width
+      exists to control cannot appear.
+
+    All three produce complete, well-formed criterion output.
+    """
+    path = os.path.join(criterion_home, PROFILE_FILE)
+    if not os.path.exists(path):
+        die(
+            f"no `{PROFILE_FILE}` beside the results. The bench writes it while "
+            "building each class's corpus, so its absence means the sweep ran a "
+            "bench that does not record what it measured — the rows cannot be "
+            "trusted even if they look complete."
+        )
+    try:
+        with open(path) as handle:
+            profile = json.load(handle)
+    except (OSError, ValueError) as err:
+        die(f"cannot read `{PROFILE_FILE}`: {err}")
+
+    unprofiled = sorted(expected - set(profile))
+    if unprofiled:
+        die(
+            "no corpus profile for "
+            + ", ".join(f"`{u}`" for u in unprofiled)
+            + ". Every scored class must record what its corpus made it do."
+        )
+
+    vacuous: list[str] = []
+    for name in sorted(expected):
+        entry = profile[name]
+        calls, distinct, longest = entry["calls"], entry["distinct"], entry["max"]
+        if longest == 0:
+            vacuous.append(
+                f"`{name}`: every one of {calls} advances was 0 — no byte of its "
+                "corpus is in the class, so the scanner never classified past "
+                "byte 0 and the probe width cannot have affected the timing"
+            )
+        elif calls <= 1:
+            vacuous.append(
+                f"`{name}`: {calls} call covering {longest} bytes — the whole "
+                "corpus is in the class, so this measures one long tail rather "
+                "than a lexer's run lengths"
+            )
+        elif distinct < 3:
+            vacuous.append(
+                f"`{name}`: only {distinct} distinct run length(s) across "
+                f"{calls} calls — with lengths this uniform every branch is "
+                "predicted and the cost the probe width controls cannot appear"
+            )
+    if vacuous:
+        die(
+            f"{len(vacuous)} scored row(s) would report a timing in which the "
+            "probe width can play no part:\n\n"
+            + "\n".join(f"* {v}" for v in vacuous)
+            + "\n\nFix the class's fill/miss bytes in the `sweep_classes!` "
+            f"invocation in `{BENCH_SOURCE}`; do not drop the row, because the "
+            "set checks require every kernel to be swept."
+        )
 
 
 def main() -> int:
@@ -207,6 +282,16 @@ def main() -> int:
             f"`{BENCH_SOURCE}`. The table is parsed from source text, so this "
             "means the parse missed a row that the bench really ran."
         )
+
+    # Set agreement proves a kernel was named and produced a cell. It cannot
+    # prove the cell measured the property this report is about, because a
+    # scanner that never advances past byte 0 produces a perfectly ordinary
+    # `memspan` and `scalar` pair. A case can be present, counted, and vacuous.
+    #
+    # The corpus profile is the bench's record of what it actually walked, and
+    # it is computed with the scalar predicate rather than with the library, so
+    # a broken kernel cannot make a dead corpus look alive.
+    require_non_vacuous(args.criterion_home, expected)
 
     # Every expected cell must exist, with both series the ratio needs. A filter
     # that matched nothing, a build that silently produced no bench, or a run

@@ -47,6 +47,15 @@ PERFORMANCE
    - `--cfg memspan_class_probe="N"` is the measurement hook the sweep drives. It is not a
      tuning API: with the cfg unset every backend keeps the width it ships with, verified
      byte-identical in the generated code on x86_64 and aarch64.
+   - Correction to the table in entry 1: the `skip_whitespace` row (0.99x -> 1.00x) was not
+     meaningful evidence about probe width. On the PromQL corpus that class advances at most
+     one byte and takes only two distinct run lengths, so the scanner never reaches the code
+     the probe governs. The `skip_ident`, `skip_digits`, `skip_hex_digits` and `skip_alpha`
+     rows were genuinely exercised and stand; re-measured on the same corpus, `skip_ident`
+     reads 1.96x -> 1.08x against the 1.92x -> 1.03x reported. The narrowing itself is
+     unaffected — it was decided on `skip_ident`.
+   - The sweep bench now builds a corpus per class and refuses to score a row whose corpus
+     never made the scanner classify anything.
 
 [#13]: https://github.com/al8n/memspan/issues/13
 [#15]: https://github.com/al8n/memspan/pull/15

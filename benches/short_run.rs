@@ -296,25 +296,107 @@ fn sweep(buf: &[u8], scan: impl Fn(&[u8]) -> usize) -> usize {
   checksum
 }
 
+/// Run lengths the `lexer_sweep` corpus cycles through.
+///
+/// The schedule varies **within** one corpus. A corpus built from a single run
+/// length predicts every branch in the scanner perfectly and cannot see the
+/// mispredict cost the probe width exists to control, so a fixed length is not
+/// a smaller version of this measurement — it is a different one.
+///
+/// The weighting is taken from a real lexer rather than chosen. Profiling the
+/// PromQL fragment in `realistic_sweep` gives, for `skip_ident`, a mean advance
+/// of 1.8 with **60% of calls advancing zero bytes** — the cursor sits on a
+/// non-member far more often than it sits on a token — and for `skip_alpha`
+/// 71% zeros. Half of this schedule is therefore zeros, most of the rest is
+/// one to five bytes, and the long values are deliberate outliers.
+///
+/// Those outliers are what stop the corpus from being realistic *and* useless.
+/// A corpus with a mean of 1.8 never reaches a vector loop on any backend, so
+/// every probe width answers every call and the sweep can distinguish nothing.
+/// `33` and `80` cross the 16- and 64-byte chunks so the widest kernels are
+/// exercised at all. The result has mean 5.3 and median 0, which sits inside
+/// the three-to-twenty-byte band the issue describes.
+///
+/// This is load-bearing and was got wrong once: an earlier version cycled each
+/// length equally, giving a mean of 17.4, and on that corpus probe 16 beat
+/// probe 8 on fourteen of fifteen classes — the reverse of the shipped
+/// decision. Widening the runs widens the answer.
+#[rustfmt::skip]
+const RUN_SCHEDULE: [usize; 40] = [
+  0, 3, 0, 1, 0,  7, 0, 2, 0,  4,
+  0, 16, 0, 1, 0,  5, 0, 3, 0, 33,
+  0, 2, 0, 9, 0,  4, 0, 1, 0, 20,
+  0, 3, 0, 2, 0, 80, 0, 5, 0, 12,
+];
+
 /// Benches every `skip_ascii_class!` kernel under the `lexer_sweep` group.
 ///
+/// Each class gets **its own corpus**, built from [`RUN_SCHEDULE`] with a fill
+/// byte inside the class and a miss byte outside it. One shared corpus cannot
+/// serve fifteen classes: a lowercase-ASCII fragment leaves `skip_upper`,
+/// `skip_non_ascii` and `skip_ascii_control` returning zero at every cursor and
+/// makes `skip_ascii` match the entire tail in a single call, so four of the
+/// fifteen rows were reporting timings in which the probe width could play no
+/// part. Criterion still emitted `memspan` and `scalar` cells for them, which is
+/// exactly why the set checks passed: a row can be named, produced, counted —
+/// and vacuous.
+///
 /// A macro rather than a `const` table of `fn` pointers, and the difference is
-/// not stylistic. A table forces `one`'s generic parameters to the *pointer*
-/// types `fn(&[u8]) -> usize` and `fn(u8) -> bool`, so the predicate is called
+/// not stylistic. A table forces the generic parameters to the *pointer* types
+/// `fn(&[u8]) -> usize` and `fn(u8) -> bool`, so the predicate is called
 /// indirectly once per byte inside the scalar reference loop and cannot be
 /// inlined into it. That inflates the denominator of every ratio in the report:
-/// measured on this host, `skip_ident` at probe 16 read 1.90x the scalar loop
-/// with fn items and 0.72x with fn pointers, for the same kernel. Passing each
-/// scanner and predicate as a `path` keeps them zero-sized fn items, so `one`
-/// monomorphizes per class exactly as a hand-written call would.
+/// measured on this host, `skip_ident` read 1.90x the scalar loop with fn items
+/// and 0.72x with fn pointers, for the same kernel. Passing each scanner and
+/// predicate as a `path` keeps them zero-sized fn items.
 ///
-/// `ci/probe_sweep.py` parses the invocation below and requires its class names
-/// to be exactly the backend's `skip_ascii_class!` invocations, so this list is
-/// not a sample and entries are added and removed with the kernels.
+/// `ci/probe_sweep.py` requires the class names here to be exactly the
+/// backend's `skip_ascii_class!` invocations, so this list is not a sample.
 macro_rules! sweep_classes {
-  ($c:expr, $buf:expr, $(($name:literal, $scanner:path, $pred:path)),+ $(,)?) => {
-    $( one($c, "lexer_sweep", $buf, $name, $scanner, $pred); )+
+  ($c:expr, $profiles:expr, $(($name:literal, $scanner:path, $pred:path, $fill:expr, $miss:expr)),+ $(,)?) => {
+    $( sweep_one($c, $profiles, $name, $scanner, $pred, $fill, $miss); )+
   };
+}
+
+/// Builds a class's corpus and records what the sweep will actually do to it.
+///
+/// The advances are computed with the **scalar predicate**, never with the
+/// library, so a broken kernel cannot make a vacuous corpus look healthy.
+fn corpus_for(pred: impl Fn(u8) -> bool, fill: u8, miss: u8) -> (Vec<u8>, String) {
+  debug_assert!(pred(fill), "fill byte must be inside the class");
+  debug_assert!(!pred(miss), "miss byte must be outside the class");
+
+  const BUF_LEN: usize = 1024 * 1024;
+  let mut buf = Vec::with_capacity(BUF_LEN + 128);
+  let mut schedule = RUN_SCHEDULE.iter().copied().cycle();
+  while buf.len() < BUF_LEN {
+    let run = schedule.next().expect("cycle never ends");
+    buf.extend(core::iter::repeat_n(fill, run));
+    buf.push(miss);
+  }
+
+  // Replay the sweep exactly as the benched loop will walk it.
+  let mut pos = 0usize;
+  let mut advances = Vec::new();
+  while pos < SCAN_LIMIT {
+    let advanced = scalar_prefix_len(&buf[pos..], &pred);
+    advances.push(advanced);
+    pos += advanced + 1;
+  }
+
+  let calls = advances.len();
+  let max = advances.iter().copied().max().unwrap_or(0);
+  let mut distinct: Vec<usize> = advances.clone();
+  distinct.sort_unstable();
+  distinct.dedup();
+  let profile = format!(
+    "\"calls\": {}, \"distinct\": {}, \"max\": {}, \"buf_len\": {}",
+    calls,
+    distinct.len(),
+    max,
+    buf.len()
+  );
+  (buf, profile)
 }
 
 /// The aggregate shape a lexer actually runs: a stream of short tokens, each
@@ -332,12 +414,6 @@ macro_rules! sweep_classes {
 /// tail never shrinks into the scalar-threshold band — and the timer is
 /// amortized over ~20k calls.
 fn bench_lexer_sweep(c: &mut Criterion) {
-  const BUF_LEN: usize = 1024 * 1024;
-  const FRAGMENT: &[u8] =
-    b"sum by (job) rate(http_requests_total{code=~\"5..\"}[5m]) / 1024 + x_7 ";
-
-  let buf: Vec<u8> = FRAGMENT.iter().copied().cycle().take(BUF_LEN).collect();
-
   fn one<F, P>(
     c: &mut Criterion,
     group_prefix: &str,
@@ -369,49 +445,129 @@ fn bench_lexer_sweep(c: &mut Criterion) {
     group.finish();
   }
 
-  const NEEDLES: [u8; 10] = *b"0123456789";
+  fn sweep_one<F, P>(
+    c: &mut Criterion,
+    profiles: &mut Vec<String>,
+    name: &str,
+    memspan_fn: F,
+    pred: P,
+    fill: u8,
+    miss: u8,
+  ) where
+    F: Fn(&[u8]) -> usize + Copy,
+    P: Fn(u8) -> bool + Copy,
+  {
+    let (buf, profile) = corpus_for(pred, fill, miss);
+    profiles.push(format!("  \"{name}\": {{{profile}}}"));
+    one(c, "lexer_sweep", &buf, name, memspan_fn, pred);
+  }
+
+  let mut profiles: Vec<String> = Vec::new();
 
   // ── lexer_sweep: every `skip_ascii_class!` kernel, and nothing else ────────
   //
   // These are the only scanners whose scalar probe is sized by `CLASS_PROBE`.
   // The probe-sweep workflow selects this group by name, and
   // `ci/probe_sweep.py` asserts that the names here are *exactly* the macro
-  // invocations the kernels are generated from — not a subset of them. That
-  // equality is what makes a deleted row a red gate instead of a shorter table:
-  // drop one here and the two lists stop matching, so the sweep fails rather
-  // than quietly reporting one row fewer.
+  // invocations the kernels are generated from — not a subset of them, and not
+  // a superset. That equality is what makes a deleted row a red gate instead of
+  // a shorter table.
   //
-  // The consequence is that this is not a curated sample and must not become
-  // one. A scanner that does not read `CLASS_PROBE` belongs in `generic_sweep`;
-  // a new `skip_ascii_class!` kernel belongs here.
-  //
-  // Some rows are degenerate on this corpus, which is fine and is still an
-  // answer. `skip_ascii` matches every byte of an ASCII fragment, so it
-  // measures the long-run path; `skip_non_ascii` and `skip_ascii_control` match
-  // none of it, so every call returns zero and the cursor steps a byte at a
-  // time.
+  // Set equality is necessary and not sufficient. It proves a kernel was named
+  // and produced a cell; it cannot prove the cell measured anything, because a
+  // kernel that never advances past byte 0 still produces one. The per-class
+  // fill and miss bytes below, and the corpus profile written beside the
+  // results, are what close that gap.
   sweep_classes!(
     c,
-    &buf,
-    ("skip_binary", skip::skip_binary, is_binary),
-    ("skip_octal_digits", skip::skip_octal_digits, is_octal),
-    ("skip_digits", skip::skip_digits, is_digit),
-    ("skip_hex_digits", skip::skip_hex_digits, is_hex),
-    ("skip_alpha", skip::skip_alpha, is_alphabetic),
+    &mut profiles,
+    ("skip_binary", skip::skip_binary, is_binary, b'1', b'2'),
+    (
+      "skip_octal_digits",
+      skip::skip_octal_digits,
+      is_octal,
+      b'7',
+      b'8'
+    ),
+    ("skip_digits", skip::skip_digits, is_digit, b'9', b'a'),
+    ("skip_hex_digits", skip::skip_hex_digits, is_hex, b'F', b'g'),
+    ("skip_alpha", skip::skip_alpha, is_alphabetic, b'q', b'0'),
     (
       "skip_alphanumeric",
       skip::skip_alphanumeric,
-      is_alphanumeric
+      is_alphanumeric,
+      b'q',
+      b'_'
     ),
-    ("skip_ident_start", skip::skip_ident_start, is_ident_start),
-    ("skip_ident", skip::skip_ident, is_ident),
-    ("skip_whitespace", skip::skip_whitespace, is_space),
-    ("skip_lower", skip::skip_lower, is_lower),
-    ("skip_upper", skip::skip_upper, is_upper),
-    ("skip_ascii", skip::skip_ascii, is_ascii_byte),
-    ("skip_non_ascii", skip::skip_non_ascii, is_non_ascii),
-    ("skip_ascii_graphic", skip::skip_ascii_graphic, is_graphic),
-    ("skip_ascii_control", skip::skip_ascii_control, is_control),
+    (
+      "skip_ident_start",
+      skip::skip_ident_start,
+      is_ident_start,
+      b'_',
+      b'0'
+    ),
+    ("skip_ident", skip::skip_ident, is_ident, b'_', b'-'),
+    (
+      "skip_whitespace",
+      skip::skip_whitespace,
+      is_space,
+      b'\t',
+      b'x'
+    ),
+    ("skip_lower", skip::skip_lower, is_lower, b'z', b'Z'),
+    ("skip_upper", skip::skip_upper, is_upper, b'Z', b'z'),
+    ("skip_ascii", skip::skip_ascii, is_ascii_byte, b'~', 0x80),
+    (
+      "skip_non_ascii",
+      skip::skip_non_ascii,
+      is_non_ascii,
+      0xFF,
+      b'a'
+    ),
+    (
+      "skip_ascii_graphic",
+      skip::skip_ascii_graphic,
+      is_graphic,
+      b'!',
+      b' '
+    ),
+    (
+      "skip_ascii_control",
+      skip::skip_ascii_control,
+      is_control,
+      0x7F,
+      b'a'
+    ),
+  );
+
+  write_corpus_profile(&profiles);
+
+  // ── realistic_sweep: the corpus PR #14 was decided on ──────────────────────
+  //
+  // `lexer_sweep` above trades realism for control: its runs are synthetic so
+  // that every class gets the same length schedule. This group keeps the
+  // original PromQL fragment for the two classes it genuinely exercises, so the
+  // measurement that justified narrowing the NEON probe stays reproducible
+  // rather than becoming a claim about a corpus that no longer exists. It is
+  // outside the sweep filter and is not scored.
+  const FRAGMENT: &[u8] =
+    b"sum by (job) rate(http_requests_total{code=~\"5..\"}[5m]) / 1024 + x_7 ";
+  let realistic: Vec<u8> = FRAGMENT.iter().copied().cycle().take(1024 * 1024).collect();
+  one(
+    c,
+    "realistic_sweep",
+    &realistic,
+    "skip_ident",
+    skip::skip_ident,
+    is_ident,
+  );
+  one(
+    c,
+    "realistic_sweep",
+    &realistic,
+    "skip_alpha",
+    skip::skip_alpha,
+    is_alphabetic,
   );
 
   // ── generic_sweep: the multi-needle scanners ───────────────────────────────
@@ -421,10 +577,11 @@ fn bench_lexer_sweep(c: &mut Criterion) {
   // the evidence that the defect is specific to the class kernels rather than
   // general to the dispatcher — but under a group name the sweep does not
   // select.
+  const NEEDLES: [u8; 10] = *b"0123456789";
   one(
     c,
     "generic_sweep",
-    &buf,
+    &realistic,
     "skip_while_10",
     |s| skip::skip_while(s, NEEDLES),
     is_digit,
@@ -432,13 +589,36 @@ fn bench_lexer_sweep(c: &mut Criterion) {
   one(
     c,
     "generic_sweep",
-    &buf,
+    &realistic,
     "skip_until_newline",
     skip::skip_until_newline,
     |c| c != b'\n',
   );
 }
 
+/// Writes the corpus profile beside the criterion results.
+///
+/// `ci/probe_sweep.py` refuses to score a row whose corpus never made the
+/// scanner classify anything, and this is where it learns that. Emitting it
+/// from the bench rather than recomputing it in the reporter keeps one
+/// definition of what the sweep actually walked.
+fn write_corpus_profile(profiles: &[String]) {
+  let home = std::env::var("CRITERION_HOME").unwrap_or_else(|_| "target/criterion".into());
+  let path = std::path::Path::new(&home).join("corpus-profile.json");
+  if let Some(parent) = path.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  let body = format!("{{\n{}\n}}\n", profiles.join(",\n"));
+  if let Err(err) = std::fs::write(&path, body) {
+    // A missing profile fails the reporter, so a warning here is enough; the
+    // run should not die before producing the timings themselves.
+    eprintln!("warning: could not write {}: {err}", path.display());
+  }
+}
+
+/// Independent scalar spellings of each class, written from its documented
+/// definition rather than reused from the library, so the bench's reference
+/// loop is a genuine second opinion about membership.
 #[inline(always)]
 fn is_binary(b: u8) -> bool {
   b == b'0' || b == b'1'
