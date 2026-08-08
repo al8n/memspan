@@ -298,35 +298,48 @@ fn sweep(buf: &[u8], scan: impl Fn(&[u8]) -> usize) -> usize {
 
 /// Run lengths the `lexer_sweep` corpus cycles through.
 ///
-/// The schedule varies **within** one corpus. A corpus built from a single run
-/// length predicts every branch in the scanner perfectly and cannot see the
-/// mispredict cost the probe width exists to control, so a fixed length is not
-/// a smaller version of this measurement — it is a different one.
+/// # What this schedule is, and is not
 ///
-/// The weighting is taken from a real lexer rather than chosen. Profiling the
-/// PromQL fragment in `realistic_sweep` gives, for `skip_ident`, a mean advance
-/// of 1.8 with **60% of calls advancing zero bytes** — the cursor sits on a
-/// non-member far more often than it sits on a token — and for `skip_alpha`
-/// 71% zeros. Half of this schedule is therefore zeros, most of the rest is
-/// one to five bytes, and the long values are deliberate outliers.
+/// It is **one shared synthetic schedule applied to all fifteen classes**. It
+/// is not fifteen measured class distributions. Its shape was derived by
+/// profiling two classes on the PromQL fragment in `realistic_sweep`
+/// (`skip_ident` advances zero bytes on 60% of calls with a mean of 1.8;
+/// `skip_alpha` 71% zeros), and that shape is then reused for the other
+/// thirteen, whose real distributions nobody here has measured. A row is
+/// therefore evidence about **this schedule**, not about how that class behaves
+/// in any caller, and rows must not be added up into a preference across
+/// classes. `ci/probe_sweep.py` prints that scope with every table.
 ///
-/// Those outliers are what stop the corpus from being realistic *and* useless.
-/// A corpus with a mean of 1.8 never reaches a vector loop on any backend, so
-/// every probe width answers every call and the sweep can distinguish nothing.
-/// `33` and `80` cross the 16- and 64-byte chunks so the widest kernels are
-/// exercised at all. The result has mean 5.3 and median 0, which sits inside
-/// the three-to-twenty-byte band the issue describes.
+/// # Why it varies, and why it is longer than a lexer
 ///
-/// This is load-bearing and was got wrong once: an earlier version cycled each
-/// length equally, giving a mean of 17.4, and on that corpus probe 16 beat
-/// probe 8 on fourteen of fifteen classes — the reverse of the shipped
+/// It varies within one corpus because a single run length predicts every
+/// branch in the scanner perfectly and cannot see the mispredict cost the probe
+/// width exists to control.
+///
+/// It is longer than real lexer input because it has to be. A probe width `w`
+/// only changes behaviour for runs of at least `w` bytes: below that the scalar
+/// probe answers and every width behaves identically. The workflow compares
+/// widths up to 64 on AVX-512, so a corpus that never produces a 64-byte run
+/// cannot distinguish the widths it is being asked about — the timings would be
+/// real, complete, and silent on the question. The mean here is 10.8 against a
+/// lexer's 1.8, and that gap is the price of being able to answer at all.
+///
+/// `ci/probe_sweep.py` enforces the connection rather than trusting this
+/// comment: it counts, per class, how many calls reach each width under
+/// comparison and refuses to score a row where any of them is rare. The
+/// previous schedule reached 64 bytes on 2.5% of calls and would now be
+/// rejected for the AVX-512 matrix.
+///
+/// The weighting is decision-sensitive and was got wrong once: an earlier
+/// version cycled each length equally, giving a mean of 17.4, and on it probe 16
+/// beat probe 8 on fourteen of fifteen classes — the reverse of the shipped
 /// decision. Widening the runs widens the answer.
 #[rustfmt::skip]
 const RUN_SCHEDULE: [usize; 40] = [
-  0, 3, 0, 1, 0,  7, 0, 2, 0,  4,
-  0, 16, 0, 1, 0,  5, 0, 3, 0, 33,
-  0, 2, 0, 9, 0,  4, 0, 1, 0, 20,
-  0, 3, 0, 2, 0, 80, 0, 5, 0, 12,
+  0,  1, 0,  8, 0, 2, 0, 33, 0,  3,
+  0, 16, 0,  4, 0, 64, 0, 5, 0, 12,
+  0,  2, 0, 48, 0, 3, 0, 20, 0,  1,
+  0, 80, 0,  4, 0, 24, 0, 5, 0, 96,
 ];
 
 /// Benches every `skip_ascii_class!` kernel under the `lexer_sweep` group.
@@ -384,17 +397,30 @@ fn corpus_for(pred: impl Fn(u8) -> bool, fill: u8, miss: u8) -> (Vec<u8>, String
     pos += advanced + 1;
   }
 
+  // Emit the whole histogram rather than a summary. Whether a corpus supports
+  // a given comparison depends on the widths being compared, which the bench
+  // does not know and the reporter does; recording the raw distribution lets
+  // the reporter ask its own question instead of trusting a statistic chosen
+  // here for a different one.
   let calls = advances.len();
-  let max = advances.iter().copied().max().unwrap_or(0);
-  let mut distinct: Vec<usize> = advances.clone();
-  distinct.sort_unstable();
-  distinct.dedup();
+  let mut histogram: Vec<usize> = advances.clone();
+  histogram.sort_unstable();
+  let mut pairs: Vec<String> = Vec::new();
+  let mut i = 0;
+  while i < histogram.len() {
+    let length = histogram[i];
+    let mut count = 0;
+    while i < histogram.len() && histogram[i] == length {
+      count += 1;
+      i += 1;
+    }
+    pairs.push(format!("\"{length}\": {count}"));
+  }
   let profile = format!(
-    "\"calls\": {}, \"distinct\": {}, \"max\": {}, \"buf_len\": {}",
+    "\"calls\": {}, \"buf_len\": {}, \"advances\": {{{}}}",
     calls,
-    distinct.len(),
-    max,
-    buf.len()
+    buf.len(),
+    pairs.join(", ")
   );
   (buf, profile)
 }

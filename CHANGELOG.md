@@ -54,8 +54,14 @@ PERFORMANCE
      rows were genuinely exercised and stand; re-measured on the same corpus, `skip_ident`
      reads 1.96x -> 1.08x against the 1.92x -> 1.03x reported. The narrowing itself is
      unaffected — it was decided on `skip_ident`.
-   - The sweep bench now builds a corpus per class and refuses to score a row whose corpus
-     never made the scanner classify anything.
+   - The sweep bench builds a corpus per class, and the reporter refuses to score a row
+     whose corpus cannot distinguish the widths that run is comparing — a width only
+     changes behaviour for runs at least that long, so a corpus of short runs is silent
+     about it however much work it does.
+   - The sweep reports **pairwise** results under one shared synthetic schedule. It does not
+     rank widths and its rows must not be added up across classes: the schedule's shape was
+     derived from two classes and reused for all fifteen, and it is decision-sensitive
+     enough that an equal-weight version of it reversed the outcome on fourteen rows.
 
 [#13]: https://github.com/al8n/memspan/issues/13
 [#15]: https://github.com/al8n/memspan/pull/15

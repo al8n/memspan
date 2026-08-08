@@ -94,7 +94,7 @@ def kernels_for(repo_root: str, tier: str) -> set[str]:
 
 
 def swept_classes(repo_root: str) -> set[str]:
-    """Classes listed in the bench's `LEXER_SWEEP_CLASSES` table."""
+    """Classes listed in the bench's `sweep_classes!` invocation."""
     names = set(SWEPT_RE.findall(read(repo_root, BENCH_SOURCE)))
     if not names:
         die(
@@ -119,21 +119,31 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
     return out
 
 
-def require_non_vacuous(criterion_home: str, expected: set[str]) -> None:
-    """Refuse to score a class whose corpus never exercised the probe.
+# A width `w` only changes behaviour for runs of at least `w` bytes: below that
+# the scalar probe answers and every compared width behaves identically. A row
+# whose corpus rarely produces such a run is not evidence about width even
+# though its timings are complete and its scanner plainly did work.
+#
+# 5% is the floor. Below it, 95% or more of the measured time comes from calls
+# in which the compared widths are the same code, so any difference the table
+# shows is dominated by variation that has nothing to do with the question.
+MIN_REACH_FRACTION = 0.05
 
-    Three ways a row can exist and mean nothing:
 
-    * **every advance is zero** — no byte of the corpus is in the class, so the
-      scanner returns at the first byte on every call and never reaches the code
-      the probe width governs;
-    * **one all-match tail** — the whole corpus is in the class, so the sweep
-      makes a single call and the run length is the buffer, not a lexer's token;
-    * **no variation** — the run lengths barely differ, so every branch in the
-      scanner is perfectly predicted and the mispredict cost the probe width
-      exists to control cannot appear.
+def require_widths_exercised(
+    criterion_home: str, expected: set[str], probes: list[int]
+) -> dict[str, dict[int, tuple[int, float]]]:
+    """Refuse to score a class whose corpus cannot distinguish the compared widths.
 
-    All three produce complete, well-formed criterion output.
+    Non-vacuity is not enough, and that was the earlier mistake here. A corpus
+    with many calls and advances of 0/1/2/5 has plenty of work in it and is
+    still silent about a comparison between 8 and 64: every call returns from
+    the scalar probe under both. The predicate cannot be a property of the
+    distribution in the abstract — it has to be a count relative to the widths
+    actually under comparison, which is why the probe list is a parameter.
+
+    Returns the reach counts so the report can print them, because a reader
+    should be able to see how much of each row's evidence was on-topic.
     """
     path = os.path.join(criterion_home, PROFILE_FILE)
     if not os.path.exists(path):
@@ -157,37 +167,48 @@ def require_non_vacuous(criterion_home: str, expected: set[str]) -> None:
             + ". Every scored class must record what its corpus made it do."
         )
 
-    vacuous: list[str] = []
+    reach: dict[str, dict[int, tuple[int, float]]] = {}
+    failures: list[str] = []
     for name in sorted(expected):
         entry = profile[name]
-        calls, distinct, longest = entry["calls"], entry["distinct"], entry["max"]
-        if longest == 0:
-            vacuous.append(
-                f"`{name}`: every one of {calls} advances was 0 — no byte of its "
-                "corpus is in the class, so the scanner never classified past "
-                "byte 0 and the probe width cannot have affected the timing"
-            )
-        elif calls <= 1:
-            vacuous.append(
-                f"`{name}`: {calls} call covering {longest} bytes — the whole "
+        calls = entry["calls"]
+        advances = {int(k): v for k, v in entry["advances"].items()}
+        if calls <= 1:
+            failures.append(
+                f"`{name}`: {calls} call over {entry['buf_len']} bytes — the whole "
                 "corpus is in the class, so this measures one long tail rather "
                 "than a lexer's run lengths"
             )
-        elif distinct < 3:
-            vacuous.append(
-                f"`{name}`: only {distinct} distinct run length(s) across "
-                f"{calls} calls — with lengths this uniform every branch is "
-                "predicted and the cost the probe width controls cannot appear"
-            )
-    if vacuous:
+            continue
+
+        reach[name] = {}
+        thin: list[str] = []
+        for width in probes:
+            hits = sum(count for length, count in advances.items() if length >= width)
+            fraction = hits / calls
+            reach[name][width] = (hits, fraction)
+            if fraction < MIN_REACH_FRACTION:
+                thin.append(
+                    f"width {width} reached by {hits}/{calls} calls "
+                    f"({fraction * 100:.1f}%)"
+                )
+        if thin:
+            failures.append(f"`{name}`: " + "; ".join(thin))
+
+    if failures:
         die(
-            f"{len(vacuous)} scored row(s) would report a timing in which the "
-            "probe width can play no part:\n\n"
-            + "\n".join(f"* {v}" for v in vacuous)
-            + "\n\nFix the class's fill/miss bytes in the `sweep_classes!` "
-            f"invocation in `{BENCH_SOURCE}`; do not drop the row, because the "
-            "set checks require every kernel to be swept."
+            f"{len(failures)} scored row(s) cannot distinguish the widths this run "
+            f"compares. A width only changes behaviour for runs at least that "
+            f"long, and fewer than {MIN_REACH_FRACTION * 100:.0f}% of calls reach "
+            "the widths named below, so those rows would report a timing that is "
+            "silent about the question:\n\n"
+            + "\n".join(f"* {f}" for f in failures)
+            + f"\n\nEither lengthen `RUN_SCHEDULE` in `{BENCH_SOURCE}` so the "
+            "corpus produces runs at those widths, or compare narrower widths in "
+            "the workflow matrix. Do not drop the row: the set checks require "
+            "every kernel to be swept."
         )
+    return reach
 
 
 def main() -> int:
@@ -238,7 +259,7 @@ def main() -> int:
         die(
             f"`{BACKEND_SOURCES[args.tier]}` generates "
             + ", ".join(f"`{u}`" for u in unswept)
-            + " with `skip_ascii_class!`, but the `LEXER_SWEEP_CLASSES` table in "
+            + " with `skip_ascii_class!`, but the `sweep_classes!` invocation in "
             f"`{BENCH_SOURCE}` does not sweep "
             + ("them" if len(unswept) > 1 else "it")
             + ". The sweep covers every kernel the constant can move or it "
@@ -278,7 +299,7 @@ def main() -> int:
         die(
             "the sweep produced results for "
             + ", ".join(f"`{s}`" for s in surprises)
-            + f", which are not in the `LEXER_SWEEP_CLASSES` table in "
+            + f", which are not in the `sweep_classes!` invocation in "
             f"`{BENCH_SOURCE}`. The table is parsed from source text, so this "
             "means the parse missed a row that the bench really ran."
         )
@@ -291,7 +312,7 @@ def main() -> int:
     # The corpus profile is the bench's record of what it actually walked, and
     # it is computed with the scalar predicate rather than with the library, so
     # a broken kernel cannot make a dead corpus look alive.
-    require_non_vacuous(args.criterion_home, expected)
+    reach = require_widths_exercised(args.criterion_home, expected, probes)
 
     # Every expected cell must exist, with both series the ratio needs. A filter
     # that matched nothing, a build that silently produced no bench, or a run
@@ -354,9 +375,9 @@ def main() -> int:
             f"probe {p}{' (shipped)' if p == args.default_probe else ''}"
             for p in probes
         )
-        + " | best | noise |"
+        + " | beats shipped | reach | noise |"
     )
-    print("|" + "---|" * (len(probes) + 3))
+    print("|" + "---|" * (len(probes) + 4))
 
     def spread_of(name: str, probe: int) -> float:
         """Round-to-round spread of one cell, relative to its own mean."""
@@ -399,32 +420,55 @@ def main() -> int:
                 best_blocked_by_noise = pair_noise > 0.10
                 deciding_noise = pair_noise
 
+        # Every candidate that cleared its own bar is listed. Picking the
+        # lowest point estimate among them would report a pairwise result — "is
+        # faster than the shipped width" — as an exact optimum, and two winners
+        # can differ from each other by less than either differs from shipped.
+        # This column answers only the question the comparison actually asked.
         if winners:
-            mark = f"**{min(winners)[1]}**"
+            mark = ", ".join(f"**{p}**" for _, p in sorted(winners, key=lambda w: w[1]))
         elif best_blocked_by_noise:
             mark = "_noisy_"
         else:
-            mark = str(args.default_probe)
+            mark = "none"
 
+        worst_reach = min(reach[name][p][1] for p in probes)
         print(
             f"| `{name}` | "
             + " | ".join(cells)
-            + f" | {mark} | +/-{deciding_noise * 100:.0f}% |"
+            + f" | {mark} | {worst_reach * 100:.0f}% | +/-{deciding_noise * 100:.0f}% |"
         )
 
     print(
-        "\nEach cell is the mean followed by the individual rounds. The noise "
-        "column is the round-to-round spread of the comparison that decided the "
-        "row — the worse of the shipped width's cell and the strongest "
-        "candidate's — so it is the bar that verdict had to clear, not a "
-        "table-wide figure. A candidate is marked in *best* only if it beats the "
-        "shipped width by more than that pair's own noise, floored at 10%; "
-        "nothing outside those two cells can raise or lower the bar. A plain "
-        "number means the shipped width genuinely held. `_noisy_` means the bar "
-        "was set by noise rather than by the floor, so this run could not "
-        "decide — it is **not** evidence for the shipped width. Across the whole "
-        f"table the spread was max {worst_spread * 100:.1f}%, median "
+        "\nEach cell is the mean followed by the individual rounds. *beats "
+        "shipped* lists **every** width that beat the shipped one by more than "
+        "the noise of those two cells alone, floored at 10%; it is a pairwise "
+        "result and deliberately not a ranking, because two listed widths may "
+        "differ from each other by less than either differs from shipped. "
+        "`none` means no width cleared that bar. `_noisy_` means the bar was set "
+        "by noise rather than by the floor, so this run could not decide — it is "
+        "**not** evidence for the shipped width. *reach* is the smallest "
+        "fraction of calls that reached any compared width; below "
+        f"{MIN_REACH_FRACTION * 100:.0f}% the row is refused outright. Across the "
+        f"whole table the spread was max {worst_spread * 100:.1f}%, median "
         f"{median_spread * 100:.1f}%."
+    )
+
+    print(
+        "\n> **Scope.** Every row above was measured on one shared synthetic "
+        "run-length schedule, not on that class's real distribution. The "
+        "schedule's shape was derived from two classes (`skip_ident`, "
+        "`skip_alpha`) profiled on a PromQL corpus and then reused for all "
+        "fifteen, and it is deliberately longer-running than lexer input so that "
+        "the wider compared widths are reachable at all. A row is evidence about "
+        "**this schedule**; it is not a measurement of how that class behaves in "
+        "any caller.\n>\n> For the same reason these rows **must not be added up**. "
+        "Counting how many classes prefer a width would report the schedule's "
+        "weighting back as a property of the classes, and that weighting is "
+        "decision-sensitive: an equal-weight version of it reversed the "
+        "preference on fourteen of fifteen rows. Treat each row as one pairwise "
+        "comparison under stated conditions, and treat any cross-class "
+        "conclusion as unsupported by this table."
     )
 
     return 0
