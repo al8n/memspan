@@ -44,6 +44,11 @@ path = "benches/skip_class_macro.rs"
 name = "skip_class_macro"
 harness = false
 
+[[bench]]
+path = "benches/short_run.rs"
+name = "short_run"
+harness = false
+
 [features]
 default = ["std"]
 alloc = []

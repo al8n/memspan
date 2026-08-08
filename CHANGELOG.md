@@ -1,5 +1,45 @@
 # UNRELEASED
 
+PERFORMANCE
+
+1. Narrow the NEON ASCII-class scalar probe from 16 bytes to 8 ([#13])
+   - Affects **aarch64 only**. No other backend's probe width changes.
+   - The probe scans a slice of compile-time-constant length, so LLVM unrolls it and
+     rebuilds each copy as a short-circuit branch tree. Run lengths that vary from token
+     to token then enter a different copy on every call and mispredict in all of them.
+     The cost tracked the number of predicate terms rather than the number of bytes, so
+     it hit `skip_ident` hardest and left single-term classes alone. Halving the probe
+     halves the trees.
+   - Measured with `cargo bench --bench short_run`, group `lexer_sweep` — a 1 MiB buffer
+     with the cursor swept over the first 64 KiB, so every call asks about a short run
+     while the slice it is handed stays ~960 KiB long. Host: Apple M4 Pro,
+     aarch64-apple-darwin, **not an idle machine**; figures are the mean of two rounds
+     run alternately before/after so both share conditions, and the round-to-round
+     spread on that host was 1-5%.
+
+     | `lexer_sweep` group | before | after | vs. plain scalar loop |
+     |---|---|---|---|
+     | `skip_ident` | 47.45 us | 25.83 us | 1.92x -> 1.03x |
+     | `skip_hex_digits` | 35.94 us | 36.56 us | 1.16x -> 1.20x |
+     | `skip_digits` | 34.63 us | 35.95 us | 1.04x -> 1.07x |
+     | `skip_alpha` | 24.59 us | 25.64 us | 1.04x -> 1.10x |
+     | `skip_whitespace` | 34.95 us | 35.25 us | 0.99x -> 1.00x |
+
+     The `long_run` group — one run covering a whole 64 KiB slice, the shape the dispatch
+     threshold was tuned for — moved between -0.2% and +3.4% across its five scanners,
+     i.e. within that spread.
+
+     Every ratio above is a same-run comparison against the scalar loop the bench
+     measures alongside each scanner, so none of it depends on machine state being
+     comparable between runs. Re-run the bench to reproduce; the numbers describe this
+     host and this corpus and should not be read as portable.
+   - Adds `benches/short_run.rs`, which covers that call shape, and
+     `tests/short_run_differential.rs`, which holds every class against an independent
+     scalar oracle across lengths, alignments, pseudo-random corpora, and all 256 byte
+     values at offsets the vector loop classifies.
+
+[#13]: https://github.com/al8n/memspan/issues/13
+
 # 0.1.0 (April 22nd, 2026)
 
 FEATURES
