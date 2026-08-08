@@ -38,7 +38,18 @@ PERFORMANCE
      scalar oracle across lengths, alignments, pseudo-random corpora, and all 256 byte
      values at offsets the vector loop classifies.
 
+2. Add `.github/workflows/probe-sweep.yml`, which times each x86 backend's scalar-probe
+   width against a plain scalar loop and reports a table ([#15])
+   - The SSE4.2, AVX2 and AVX-512 kernels probe 16, 32 and 64 bytes and have the same
+     unrolled-branch-tree exposure the NEON sweep found, but no maintainer host can time
+     them. The workflow produces those numbers so the constants can be tuned from
+     measurement in a follow-up rather than guessed now.
+   - `--cfg memspan_class_probe="N"` is the measurement hook the sweep drives. It is not a
+     tuning API: with the cfg unset every backend keeps the width it ships with, verified
+     byte-identical in the generated code on x86_64 and aarch64.
+
 [#13]: https://github.com/al8n/memspan/issues/13
+[#15]: https://github.com/al8n/memspan/pull/15
 
 # 0.1.0 (April 22nd, 2026)
 

@@ -185,6 +185,39 @@ pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
   prefix_len_by(input, is_ascii_control)
 }
 
+// ── probe width ──────────────────────────────────────────────────────────────
+
+/// Selects the scalar-probe width for a SIMD backend's ASCII-class kernels.
+///
+/// `default` is the width the backend ships with. `chunk` is its vector width,
+/// and also a hard upper bound: the kernels return early on `len < chunk`
+/// before slicing `&input[..probe]`, so a probe wider than a chunk could index
+/// past the end.
+///
+/// `--cfg memspan_class_probe="N"` overrides the default. It exists so the
+/// probe-sweep workflow can produce a comparison table for the backends this
+/// host cannot time, and it is a **measurement hook, not a tuning API**: with
+/// the cfg unset every backend keeps the width it ships with, and the generated
+/// code is unchanged.
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub(crate) const fn class_probe(default: usize, chunk: usize) -> usize {
+  let requested = cfg_select! {
+    memspan_class_probe = "4" => 4usize,
+    memspan_class_probe = "8" => 8usize,
+    memspan_class_probe = "16" => 16usize,
+    memspan_class_probe = "32" => 32usize,
+    memspan_class_probe = "64" => 64usize,
+    _ => 0usize,
+  };
+
+  let probe = if requested == 0 { default } else { requested };
+
+  // Clamp rather than reject, so one sweep value can be handed to every
+  // backend at once: `64` means "a whole chunk" on AVX-512 and stays 16 on
+  // SSE4.2 instead of failing the build.
+  if probe > chunk { chunk } else { probe }
+}
+
 // ── x86/x86_64 dispatch helpers ──────────────────────────────────────────────
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

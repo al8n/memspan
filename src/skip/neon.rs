@@ -49,7 +49,9 @@ const NEON_CHUNK_SIZE: usize = 16;
 /// the constant is 16, 32 and 64, so the defect is very likely worse there.
 /// This host is aarch64 and cannot run those backends, and an untested tuning
 /// constant is worth less than a measured one, so they are left alone.
-const CLASS_PROBE: usize = 8;
+const CLASS_PROBE: usize = super::class_probe(8, NEON_CHUNK_SIZE);
+
+const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= NEON_CHUNK_SIZE);
 
 /// Pack a 16-byte byte-mask (`0xFF`/`0x00` per lane) into a `u64` where each
 /// 4-bit nibble represents one lane. The first matching lane is then at bit

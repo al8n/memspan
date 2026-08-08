@@ -1,0 +1,194 @@
+name: probe-sweep
+
+# Times the scalar-probe width of each x86 SIMD backend against the plain
+# scalar loop, and reports a table. It does not gate anything.
+#
+# # Why this exists
+#
+# Every ASCII-class kernel opens by scalar-classifying its first chunk so a
+# short run never pays for a vector load. That probe scans a slice of
+# compile-time-constant length, so LLVM unrolls it and rebuilds each copy as a
+# short-circuit branch tree; when a caller's run lengths vary — which is what
+# lexing is — it enters a different copy on every call and mispredicts in all
+# of them. A measured sweep on aarch64 (#13) found a three-term predicate
+# running at 1.9x a plain scalar loop, and halving the NEON probe recovered it.
+#
+# The SSE4.2, AVX2 and AVX-512 kernels probe 16, 32 and 64 bytes, so the same
+# defect is structurally present and probably worse. Nobody has timed it,
+# because the maintainer's host is aarch64. This workflow produces those
+# numbers so the constants can be tuned from measurement instead of guessed.
+#
+# # Why it is not a gate
+#
+# A perf comparison on shared runners flakes, and a flaky gate gets ignored.
+# There is also nothing here to gate *against*: a sweep has no before/after,
+# only a set of widths. The job writes a table to the run summary and uploads
+# the raw criterion estimates; `ci/probe_sweep.py` marks a width only when it
+# beats the shipped one by more than the round-to-round spread measured in that
+# same run.
+#
+# # Why AVX-512 is conditional, and why SDE is not used to time it
+#
+# GitHub-hosted x86 runners are a mix of Intel Xeon (AVX-512 on some
+# generations) and AMD EPYC (none), so the AVX-512 leg times its sweep only
+# when the runner actually has AVX-512BW and otherwise reports that it could
+# not measure.
+#
+# This repository already installs Intel SDE for the AVX-512 *correctness*
+# suite, and it is tempting to reuse it here. Do not: SDE is a functional
+# emulator, and its wall-clock numbers describe the emulator, not the CPU. A
+# sweep timed under SDE would yield a confident table of meaningless ratios.
+#
+# SDE's `-mix` dynamic instruction and branch counts were considered as a
+# noise-free proxy and rejected on a specific ground rather than on effort: the
+# cost being measured is branch *misprediction*, which a static count cannot
+# see, and for the short-run population that this whole investigation is about
+# the counts barely move. Both a 64-byte and an 8-byte probe exit after roughly
+# three bytes on a three-byte run, so the dynamic branch count would shift by a
+# few percent on a corpus where the *time* shifted by 45%. A number that small
+# reads as "no effect" and would argue against a change that is real. An
+# honest gap beats a misleading metric.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: >-
+          Runner label. GitHub's shared x86 pool rarely offers AVX-512; point
+          this at a runner that has it to fill in that leg.
+        required: false
+        default: ubuntu-latest
+  schedule:
+    - cron: "0 3 1 * *"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Two rounds per width, run alternately, so a drift in runner load shows up
+  # as a spread rather than as a fake winner.
+  ROUNDS: 2
+
+jobs:
+  sweep:
+    name: sweep-${{ matrix.tier }}
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `cpu_flag` is matched against /proc/cpuinfo. `isolate` pins the
+          # dispatcher to this tier by disabling everything above it, so the
+          # sweep measures the backend it claims to.
+          - tier: sse42
+            cpu_flag: sse4_2
+            default_probe: 16
+            probes: "16,8,4"
+            isolate: --cfg memspan_disable_avx512 --cfg memspan_disable_avx2
+          - tier: avx2
+            cpu_flag: avx2
+            default_probe: 32
+            probes: "32,16,8,4"
+            isolate: --cfg memspan_disable_avx512
+          - tier: avx512
+            cpu_flag: avx512bw
+            default_probe: 64
+            probes: "64,32,16,8"
+            isolate: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+
+      - name: Check whether this runner has ${{ matrix.tier }}
+        id: cpu
+        run: |
+          if grep -qw "${{ matrix.cpu_flag }}" /proc/cpuinfo; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "model=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)" >> "$GITHUB_OUTPUT"
+
+      - name: Report that ${{ matrix.tier }} is unavailable
+        if: steps.cpu.outputs.available != 'true'
+        run: |
+          {
+            echo "### \`${{ matrix.tier }}\` not measured"
+            echo
+            echo "This runner is \`${{ steps.cpu.outputs.model }}\`, which does not"
+            echo "report the \`${{ matrix.cpu_flag }}\` flag, so there is nothing to time."
+            echo
+            echo "This is expected for AVX-512 on GitHub's shared pool. Re-dispatch the"
+            echo "workflow with a runner that has it to fill this leg in. The sweep is"
+            echo "deliberately **not** run under Intel SDE: SDE is a functional emulator"
+            echo "and its wall-clock output measures the emulator, not the CPU."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Each width needs its own build, and they must coexist so the rounds can
+      # alternate between them instead of running all of one width and then all
+      # of the next. Separate target dirs are how they coexist; criterion is
+      # pointed at one shared home so every result lands in the same tree.
+      - name: Build one bench binary per probe width
+        if: steps.cpu.outputs.available == 'true'
+        run: |
+          for probe in $(echo "${{ matrix.probes }}" | tr ',' ' '); do
+            echo "::group::build probe=$probe"
+            CARGO_TARGET_DIR="$PWD/target-p$probe" \
+            RUSTFLAGS="${{ matrix.isolate }} --cfg memspan_class_probe=\"$probe\"" \
+              cargo bench --bench short_run --no-run
+            echo "::endgroup::"
+          done
+
+      # Correctness first: a width that scans a different number of bytes must
+      # still return the same answer. `tests/short_run_differential.rs` holds
+      # every class against an independent scalar oracle.
+      - name: Check every width still agrees with the oracle
+        if: steps.cpu.outputs.available == 'true'
+        run: |
+          for probe in $(echo "${{ matrix.probes }}" | tr ',' ' '); do
+            echo "::group::test probe=$probe"
+            CARGO_TARGET_DIR="$PWD/target-p$probe" \
+            RUSTFLAGS="${{ matrix.isolate }} --cfg memspan_class_probe=\"$probe\"" \
+              cargo test --all-features --test short_run_differential
+            echo "::endgroup::"
+          done
+
+      - name: Run the sweep
+        if: steps.cpu.outputs.available == 'true'
+        env:
+          CRITERION_HOME: ${{ github.workspace }}/criterion-sweep
+        run: |
+          for round in $(seq 1 "$ROUNDS"); do
+            for probe in $(echo "${{ matrix.probes }}" | tr ',' ' '); do
+              echo "::group::round $round, probe=$probe"
+              CARGO_TARGET_DIR="$PWD/target-p$probe" \
+              RUSTFLAGS="${{ matrix.isolate }} --cfg memspan_class_probe=\"$probe\"" \
+                cargo bench --bench short_run -- \
+                  --warm-up-time 1 --measurement-time 2 --sample-size 100 \
+                  --save-baseline "${probe}_r${round}" 'lexer_sweep'
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Render the table
+        if: steps.cpu.outputs.available == 'true'
+        run: |
+          {
+            echo "CPU: \`${{ steps.cpu.outputs.model }}\`"
+            echo
+            python3 ci/probe_sweep.py \
+              --criterion-home "${{ github.workspace }}/criterion-sweep" \
+              --tier "${{ matrix.tier }}" \
+              --default-probe "${{ matrix.default_probe }}" \
+              --probes "${{ matrix.probes }}" \
+              --rounds "$ROUNDS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw estimates
+        if: steps.cpu.outputs.available == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: probe-sweep-${{ matrix.tier }}
+          path: ${{ github.workspace }}/criterion-sweep/**/estimates.json
+          if-no-files-found: warn
