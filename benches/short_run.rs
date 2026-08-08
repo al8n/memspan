@@ -296,6 +296,27 @@ fn sweep(buf: &[u8], scan: impl Fn(&[u8]) -> usize) -> usize {
   checksum
 }
 
+/// Benches every `skip_ascii_class!` kernel under the `lexer_sweep` group.
+///
+/// A macro rather than a `const` table of `fn` pointers, and the difference is
+/// not stylistic. A table forces `one`'s generic parameters to the *pointer*
+/// types `fn(&[u8]) -> usize` and `fn(u8) -> bool`, so the predicate is called
+/// indirectly once per byte inside the scalar reference loop and cannot be
+/// inlined into it. That inflates the denominator of every ratio in the report:
+/// measured on this host, `skip_ident` at probe 16 read 1.90x the scalar loop
+/// with fn items and 0.72x with fn pointers, for the same kernel. Passing each
+/// scanner and predicate as a `path` keeps them zero-sized fn items, so `one`
+/// monomorphizes per class exactly as a hand-written call would.
+///
+/// `ci/probe_sweep.py` parses the invocation below and requires its class names
+/// to be exactly the backend's `skip_ascii_class!` invocations, so this list is
+/// not a sample and entries are added and removed with the kernels.
+macro_rules! sweep_classes {
+  ($c:expr, $buf:expr, $(($name:literal, $scanner:path, $pred:path)),+ $(,)?) => {
+    $( one($c, "lexer_sweep", $buf, $name, $scanner, $pred); )+
+  };
+}
+
 /// The aggregate shape a lexer actually runs: a stream of short tokens, each
 /// scanned from a cursor that always has a long tail behind it, with the run
 /// length **varying** from call to call.
@@ -350,54 +371,47 @@ fn bench_lexer_sweep(c: &mut Criterion) {
 
   const NEEDLES: [u8; 10] = *b"0123456789";
 
-  // ── lexer_sweep: ASCII-class scanners only ─────────────────────────────────
+  // ── lexer_sweep: every `skip_ascii_class!` kernel, and nothing else ────────
   //
-  // These are the `skip_ascii_class!` kernels, and they are the only scanners
-  // whose scalar probe is sized by `CLASS_PROBE`. The probe-sweep workflow
-  // selects this group by name and `ci/probe_sweep.py` cross-checks every row
-  // in it against the macro invocations the kernels are generated from, so a
-  // scanner that does not read the constant must not be filed here — its noise
-  // would be scored as probe-width evidence and would widen the spread the
-  // report thresholds against.
-  one(
+  // These are the only scanners whose scalar probe is sized by `CLASS_PROBE`.
+  // The probe-sweep workflow selects this group by name, and
+  // `ci/probe_sweep.py` asserts that the names here are *exactly* the macro
+  // invocations the kernels are generated from — not a subset of them. That
+  // equality is what makes a deleted row a red gate instead of a shorter table:
+  // drop one here and the two lists stop matching, so the sweep fails rather
+  // than quietly reporting one row fewer.
+  //
+  // The consequence is that this is not a curated sample and must not become
+  // one. A scanner that does not read `CLASS_PROBE` belongs in `generic_sweep`;
+  // a new `skip_ascii_class!` kernel belongs here.
+  //
+  // Some rows are degenerate on this corpus, which is fine and is still an
+  // answer. `skip_ascii` matches every byte of an ASCII fragment, so it
+  // measures the long-run path; `skip_non_ascii` and `skip_ascii_control` match
+  // none of it, so every call returns zero and the cursor steps a byte at a
+  // time.
+  sweep_classes!(
     c,
-    "lexer_sweep",
     &buf,
-    "skip_ident",
-    skip::skip_ident,
-    is_ident,
-  );
-  one(
-    c,
-    "lexer_sweep",
-    &buf,
-    "skip_digits",
-    skip::skip_digits,
-    is_digit,
-  );
-  one(
-    c,
-    "lexer_sweep",
-    &buf,
-    "skip_whitespace",
-    skip::skip_whitespace,
-    is_space,
-  );
-  one(
-    c,
-    "lexer_sweep",
-    &buf,
-    "skip_alpha",
-    skip::skip_alpha,
-    |b| b.is_ascii_alphabetic(),
-  );
-  one(
-    c,
-    "lexer_sweep",
-    &buf,
-    "skip_hex_digits",
-    skip::skip_hex_digits,
-    |b| b.is_ascii_hexdigit(),
+    ("skip_binary", skip::skip_binary, is_binary),
+    ("skip_octal_digits", skip::skip_octal_digits, is_octal),
+    ("skip_digits", skip::skip_digits, is_digit),
+    ("skip_hex_digits", skip::skip_hex_digits, is_hex),
+    ("skip_alpha", skip::skip_alpha, is_alphabetic),
+    (
+      "skip_alphanumeric",
+      skip::skip_alphanumeric,
+      is_alphanumeric
+    ),
+    ("skip_ident_start", skip::skip_ident_start, is_ident_start),
+    ("skip_ident", skip::skip_ident, is_ident),
+    ("skip_whitespace", skip::skip_whitespace, is_space),
+    ("skip_lower", skip::skip_lower, is_lower),
+    ("skip_upper", skip::skip_upper, is_upper),
+    ("skip_ascii", skip::skip_ascii, is_ascii_byte),
+    ("skip_non_ascii", skip::skip_non_ascii, is_non_ascii),
+    ("skip_ascii_graphic", skip::skip_ascii_graphic, is_graphic),
+    ("skip_ascii_control", skip::skip_ascii_control, is_control),
   );
 
   // ── generic_sweep: the multi-needle scanners ───────────────────────────────
@@ -423,6 +437,66 @@ fn bench_lexer_sweep(c: &mut Criterion) {
     skip::skip_until_newline,
     |c| c != b'\n',
   );
+}
+
+#[inline(always)]
+fn is_binary(b: u8) -> bool {
+  b == b'0' || b == b'1'
+}
+
+#[inline(always)]
+fn is_octal(b: u8) -> bool {
+  (b'0'..=b'7').contains(&b)
+}
+
+#[inline(always)]
+fn is_hex(b: u8) -> bool {
+  b.is_ascii_hexdigit()
+}
+
+#[inline(always)]
+fn is_alphabetic(b: u8) -> bool {
+  b.is_ascii_alphabetic()
+}
+
+#[inline(always)]
+fn is_alphanumeric(b: u8) -> bool {
+  b.is_ascii_alphanumeric()
+}
+
+#[inline(always)]
+fn is_ident_start(b: u8) -> bool {
+  b.is_ascii_alphabetic() || b == b'_'
+}
+
+#[inline(always)]
+fn is_lower(b: u8) -> bool {
+  b.is_ascii_lowercase()
+}
+
+#[inline(always)]
+fn is_upper(b: u8) -> bool {
+  b.is_ascii_uppercase()
+}
+
+#[inline(always)]
+fn is_ascii_byte(b: u8) -> bool {
+  b.is_ascii()
+}
+
+#[inline(always)]
+fn is_non_ascii(b: u8) -> bool {
+  !b.is_ascii()
+}
+
+#[inline(always)]
+fn is_graphic(b: u8) -> bool {
+  (0x21..=0x7E).contains(&b)
+}
+
+#[inline(always)]
+fn is_control(b: u8) -> bool {
+  b <= 0x1F || b == 0x7F
 }
 
 criterion_group!(

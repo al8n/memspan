@@ -56,9 +56,7 @@ BACKEND_SOURCES = {
 BENCH_SOURCE = "benches/short_run.rs"
 
 KERNEL_RE = re.compile(r"skip_ascii_class!\(\s*([A-Za-z0-9_]+)\s*,", re.S)
-SWEPT_RE = re.compile(
-    r'one\(\s*c\s*,\s*"lexer_sweep"\s*,\s*&buf\s*,\s*"([A-Za-z0-9_]+)"', re.S
-)
+SWEPT_RE = re.compile(r'\(\s*"(skip_[a-z0-9_]+)"\s*,\s*skip::', re.S)
 
 
 def die(message: str) -> None:
@@ -92,12 +90,12 @@ def kernels_for(repo_root: str, tier: str) -> set[str]:
 
 
 def swept_classes(repo_root: str) -> set[str]:
-    """Classes the bench files under the `lexer_sweep` group."""
+    """Classes listed in the bench's `LEXER_SWEEP_CLASSES` table."""
     names = set(SWEPT_RE.findall(read(repo_root, BENCH_SOURCE)))
     if not names:
         die(
-            f"found no `lexer_sweep` call sites in `{BENCH_SOURCE}`. The sweep would "
-            "have nothing to report and would otherwise exit cleanly."
+            f"found no swept classes in `{BENCH_SOURCE}`. The sweep would have "
+            "nothing to report and would otherwise exit cleanly."
         )
     return names
 
@@ -142,9 +140,14 @@ def main() -> int:
     kernels = kernels_for(args.repo_root, args.tier)
     expected = swept_classes(args.repo_root)
 
-    # A scanner in the swept group that this backend does not generate through
-    # `skip_ascii_class!` does not read `CLASS_PROBE`, so the sweep cannot move
-    # it and scoring it would be a category error.
+    # The swept set and the generated set must be *equal*, not merely
+    # compatible. Each list is recovered by a regular expression over source
+    # text, and a regular expression recognises rather than decides: on its own,
+    # a row deleted from the bench, renamed, or written in a shape the pattern
+    # misses would simply shrink `expected`, and the sweep would report a
+    # shorter table and exit 0 with the most interesting class gone. Requiring
+    # the two independently-recovered sets to agree turns every such miss into a
+    # mismatch, because the other list still has the name.
     stowaways = sorted(expected - kernels)
     if stowaways:
         die(
@@ -153,6 +156,21 @@ def main() -> int:
             + f", which `{BACKEND_SOURCES[args.tier]}` does not generate with "
             "`skip_ascii_class!` and which therefore never reads `CLASS_PROBE`. "
             "Move it to the `generic_sweep` group."
+        )
+
+    unswept = sorted(kernels - expected)
+    if unswept:
+        die(
+            f"`{BACKEND_SOURCES[args.tier]}` generates "
+            + ", ".join(f"`{u}`" for u in unswept)
+            + " with `skip_ascii_class!`, but the `LEXER_SWEEP_CLASSES` table in "
+            f"`{BENCH_SOURCE}` does not sweep "
+            + ("them" if len(unswept) > 1 else "it")
+            + ". The sweep covers every kernel the constant can move or it "
+            "covers none: a partial table cannot be told apart from a complete "
+            "one by anybody reading the report. Add the missing "
+            + ("entries" if len(unswept) > 1 else "entry")
+            + " to the table, or move the kernel out of `skip_ascii_class!`."
         )
 
     # measured[probe][round][class] -> {impl: ns}
@@ -169,6 +187,26 @@ def main() -> int:
                     parts[-2]
                 ] = value
             measured[probe][rnd] = per_class
+
+    # Third independent source: what actually ran. A group present in the
+    # results but absent from the bench table means the table regex missed a row
+    # that criterion did execute — the one way a source-text miss could have
+    # cancelled out above.
+    produced = {
+        name
+        for probe in probes
+        for rnd in rounds
+        for name in measured[probe][rnd]
+    }
+    surprises = sorted(produced - expected)
+    if surprises:
+        die(
+            "the sweep produced results for "
+            + ", ".join(f"`{s}`" for s in surprises)
+            + f", which are not in the `LEXER_SWEEP_CLASSES` table in "
+            f"`{BENCH_SOURCE}`. The table is parsed from source text, so this "
+            "means the parse missed a row that the bench really ran."
+        )
 
     # Every expected cell must exist, with both series the ratio needs. A filter
     # that matched nothing, a build that silently produced no bench, or a run
@@ -235,60 +273,74 @@ def main() -> int:
     )
     print("|" + "---|" * (len(probes) + 3))
 
+    def spread_of(name: str, probe: int) -> float:
+        """Round-to-round spread of one cell, relative to its own mean."""
+        seen = per_round[name][probe]
+        mean = ratios[name][probe]
+        return (max(seen) - min(seen)) / mean if mean else 0.0
+
     for name in sorted(expected):
         cells = [
             f"{ratios[name][p]:.2f} ({'/'.join(f'{r:.2f}' for r in per_round[name][p])})"
             for p in probes
         ]
 
-        # The bar is *this row's* worst round-to-round spread, not the whole
-        # table's. A single noisy cell anywhere would otherwise set the bar for
-        # every class and bury every real signal — the same way an unaffected
-        # scanner in the group would, one level in. The 10% floor keeps a
-        # suspiciously quiet run from promoting a 1% difference to a finding.
-        row_spread = max(
-            (max(seen) - min(seen)) / ratios[name][p]
-            for p, seen in per_round[name].items()
-            if ratios[name][p]
-        )
-        row_threshold = max(0.10, row_spread)
+        shipped_mean = ratios[name][args.default_probe]
+        shipped_spread = spread_of(name, args.default_probe)
 
-        best = min(ratios[name], key=lambda p: ratios[name][p])
-        shipped = ratios[name].get(args.default_probe)
-        if shipped and ratios[name][best] < shipped * (1 - row_threshold):
-            mark = f"**{best}**"
+        # Each candidate is judged against the shipped width using only those
+        # two cells' noise. Taking the row's worst spread instead would let one
+        # bad round for an unrelated probe raise the bar for every comparison in
+        # the row and veto a genuine winner — the same contamination as scoring
+        # an unaffected scanner, one level further in. The 10% floor keeps a
+        # suspiciously quiet run from promoting a rounding difference.
+        winners: list[tuple[float, int]] = []
+        best_gain = float("-inf")
+        best_blocked_by_noise = False
+        deciding_noise = shipped_spread
+        for probe in probes:
+            if probe == args.default_probe:
+                continue
+            pair_noise = max(shipped_spread, spread_of(name, probe))
+            bar = max(0.10, pair_noise)
+            gain = (shipped_mean - ratios[name][probe]) / shipped_mean
+            if gain > bar:
+                winners.append((ratios[name][probe], probe))
+            if gain > best_gain:
+                # Whether the *strongest* candidate was stopped by measurement
+                # noise or by the floor is the difference between "we could not
+                # tell" and "the shipped width held". Only the first is noise.
+                best_gain = gain
+                best_blocked_by_noise = pair_noise > 0.10
+                deciding_noise = pair_noise
+
+        if winners:
+            mark = f"**{min(winners)[1]}**"
+        elif best_blocked_by_noise:
+            mark = "_noisy_"
         else:
             mark = str(args.default_probe)
+
         print(
             f"| `{name}` | "
             + " | ".join(cells)
-            + f" | {mark} | +/-{row_spread * 100:.0f}% |"
+            + f" | {mark} | +/-{deciding_noise * 100:.0f}% |"
         )
 
     print(
-        f"\nEach cell shows the mean and then the individual rounds. A width is "
-        "marked in *best* only if it beats the shipped one by more than that "
-        "row's own noise column (floored at 10%); a plain number means the "
-        "shipped width is within noise of the best. Across the whole table the "
-        f"round-to-round spread was max {worst_spread * 100:.1f}%, median "
-        f"{median_spread * 100:.1f}% — if that max is large, the runner was busy "
-        "and the marks are worth less than usual."
+        "\nEach cell is the mean followed by the individual rounds. The noise "
+        "column is the round-to-round spread of the comparison that decided the "
+        "row — the worse of the shipped width's cell and the strongest "
+        "candidate's — so it is the bar that verdict had to clear, not a "
+        "table-wide figure. A candidate is marked in *best* only if it beats the "
+        "shipped width by more than that pair's own noise, floored at 10%; "
+        "nothing outside those two cells can raise or lower the bar. A plain "
+        "number means the shipped width genuinely held. `_noisy_` means the bar "
+        "was set by noise rather than by the floor, so this run could not "
+        "decide — it is **not** evidence for the shipped width. Across the whole "
+        f"table the spread was max {worst_spread * 100:.1f}%, median "
+        f"{median_spread * 100:.1f}%."
     )
-
-    # Not a failure: the bench samples the predicate-complexity range rather than
-    # every class, because the sweep's cost is linear in the number of classes.
-    # It is printed so the sample stays a visible choice instead of becoming an
-    # invisible assumption.
-    unswept = sorted(kernels - expected)
-    if unswept:
-        print(
-            f"\n{len(unswept)} of this backend's {len(kernels)} `skip_ascii_class!` "
-            "kernels are not in the sweep: "
-            + ", ".join(f"`{u}`" for u in unswept)
-            + ". The swept set spans the predicate-complexity range that drives the "
-            "effect, from single-term to three-term; widen it in "
-            f"`{BENCH_SOURCE}` if a specific class needs its own number."
-        )
 
     return 0
 
