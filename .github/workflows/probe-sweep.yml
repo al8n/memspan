@@ -198,12 +198,26 @@ jobs:
               --default-probe "${{ matrix.default_probe }}" \
               --probes "${{ matrix.probes }}" \
               --rounds "$ROUNDS"
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee "${{ github.workspace }}/criterion-sweep/summary-${{ matrix.tier }}.md"
+          cat "${{ github.workspace }}/criterion-sweep/summary-${{ matrix.tier }}.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload raw estimates
+      # An artifact that carries a conclusion must carry what licenses it.
+      #
+      # This used to upload `**/estimates.json` alone. Every reach claim in the
+      # rendered table is licensed by `corpus-profile.json` — the histogram of
+      # what each class's corpus actually made the scanner do — and that file
+      # was not in the artifact, so anyone reading the artifact by itself saw
+      # verdicts with no way to check whether a row reached the widths it was
+      # scored on. That is the reporting gap this workflow exists to close,
+      # reproduced one level out in its own output.
+      #
+      # The path is now the whole directory: the estimates, both corpus
+      # profiles, and the rendered summary. A reader can re-derive every verdict
+      # from the artifact without access to the runner.
+      - name: Upload the sweep, its corpus profiles, and the rendered summary
         if: steps.cpu.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: probe-sweep-${{ matrix.tier }}
-          path: ${{ github.workspace }}/criterion-sweep/**/estimates.json
-          if-no-files-found: warn
+          path: ${{ github.workspace }}/criterion-sweep
+          if-no-files-found: error

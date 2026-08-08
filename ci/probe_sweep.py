@@ -60,6 +60,7 @@ BENCH_SOURCE = "benches/short_run.rs"
 PROFILE_FILE = "corpus-profile.json"
 
 KERNEL_RE = re.compile(r"skip_ascii_class!\(\s*([A-Za-z0-9_]+)\s*,", re.S)
+MACRO_OPEN = "sweep_classes!("
 SWEPT_RE = re.compile(r'\(\s*"(skip_[a-z0-9_]+)"\s*,\s*skip::', re.S)
 
 
@@ -95,11 +96,32 @@ def kernels_for(repo_root: str, tier: str) -> set[str]:
 
 def swept_classes(repo_root: str) -> set[str]:
     """Classes listed in the bench's `sweep_classes!` invocation."""
-    names = set(SWEPT_RE.findall(read(repo_root, BENCH_SOURCE)))
+    source = read(repo_root, BENCH_SOURCE)
+
+    # Scope the search to the `sweep_classes!` invocation before matching. The
+    # bench has more than one macro that lists classes in the same shape —
+    # `realistic_sweep` names some of the same ones — and a pattern applied to
+    # the whole file silently unions them. That is not hypothetical: it happened
+    # here, and the deleted-row guard went green with a row genuinely removed,
+    # because the name it should have missed was still present in the other
+    # invocation.
+    start = source.find(MACRO_OPEN)
+    if start < 0:
+        die(
+            f"found no `{MACRO_OPEN}` in `{BENCH_SOURCE}`. The sweep's class list "
+            "is read from that invocation, so this script is now looking in the "
+            "wrong place."
+        )
+    end = source.find("\n  );", start)
+    if end < 0:
+        die(f"`{MACRO_OPEN}` in `{BENCH_SOURCE}` is not closed by `\\n  );`.")
+
+    names = set(SWEPT_RE.findall(source[start:end]))
     if not names:
         die(
-            f"found no swept classes in `{BENCH_SOURCE}`. The sweep would have "
-            "nothing to report and would otherwise exit cleanly."
+            f"found no swept classes in the `{MACRO_OPEN}` invocation in "
+            f"`{BENCH_SOURCE}`. The sweep would have nothing to report and would "
+            "otherwise exit cleanly."
         )
     return names
 
@@ -120,14 +142,27 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 
 
 # A width `w` only changes behaviour for runs of at least `w` bytes: below that
-# the scalar probe answers and every compared width behaves identically. A row
-# whose corpus rarely produces such a run is not evidence about width even
-# though its timings are complete and its scanner plainly did work.
+# the scalar probe answers and every compared width is the same code. A corpus
+# that never produces such a run is silent about the comparison however much
+# work it does, so the reaching calls are counted per class and per width.
 #
-# 5% is the floor. Below it, 95% or more of the measured time comes from calls
-# in which the compared widths are the same code, so any difference the table
-# shows is dominated by variation that has nothing to do with the question.
-MIN_REACH_FRACTION = 0.05
+# The floor is an absolute count, not a fraction, and that is a correction to an
+# earlier version of this check. The fraction floor was justified by the claim
+# that below 5% "95% of the measured time comes from calls where the widths are
+# identical" — which was assumed rather than measured, and is false. Per-call
+# cost is not uniform: the calls that reach a width are precisely the ones that
+# do the extra work, so a small share of calls can carry most of the difference.
+#
+# The corpus behind the merged NEON narrowing shows it. `skip_ident` on the
+# PromQL fragment reaches width 8 on 950 of 22793 calls — 4.2%, below the old
+# floor — and those calls moved the measured ratio from 1.92x to 1.08x. A
+# fraction floor would have rejected the evidence for a change that reproduces.
+#
+# What a floor can honestly exclude is a distinguishing population too small to
+# have been sampled: zero reaching calls is provably silent, and a handful is
+# one outlier away from noise. The fraction is still reported, because a reader
+# weighing a row should see when its evidence rests on few calls.
+MIN_REACH_CALLS = 100
 
 
 def require_widths_exercised(
@@ -187,7 +222,7 @@ def require_widths_exercised(
             hits = sum(count for length, count in advances.items() if length >= width)
             fraction = hits / calls
             reach[name][width] = (hits, fraction)
-            if fraction < MIN_REACH_FRACTION:
+            if hits < MIN_REACH_CALLS:
                 thin.append(
                     f"width {width} reached by {hits}/{calls} calls "
                     f"({fraction * 100:.1f}%)"
@@ -198,10 +233,10 @@ def require_widths_exercised(
     if failures:
         die(
             f"{len(failures)} scored row(s) cannot distinguish the widths this run "
-            f"compares. A width only changes behaviour for runs at least that "
-            f"long, and fewer than {MIN_REACH_FRACTION * 100:.0f}% of calls reach "
-            "the widths named below, so those rows would report a timing that is "
-            "silent about the question:\n\n"
+            "compares. A width only changes behaviour for runs at least that "
+            f"long, and fewer than {MIN_REACH_CALLS} calls reach the widths named "
+            "below, so those rows would report a timing with no sampled "
+            "population behind the comparison:\n\n"
             + "\n".join(f"* {f}" for f in failures)
             + f"\n\nEither lengthen `RUN_SCHEDULE` in `{BENCH_SOURCE}` so the "
             "corpus produces runs at those widths, or compare narrower widths in "
@@ -432,11 +467,13 @@ def main() -> int:
         else:
             mark = "none"
 
-        worst_reach = min(reach[name][p][1] for p in probes)
+        worst_width = min(probes, key=lambda p: reach[name][p][0])
+        worst_hits, worst_share = reach[name][worst_width]
         print(
             f"| `{name}` | "
             + " | ".join(cells)
-            + f" | {mark} | {worst_reach * 100:.0f}% | +/-{deciding_noise * 100:.0f}% |"
+            + f" | {mark} | {worst_hits} ({worst_share * 100:.1f}%)"
+            + f" | +/-{deciding_noise * 100:.0f}% |"
         )
 
     print(
@@ -448,8 +485,11 @@ def main() -> int:
         "`none` means no width cleared that bar. `_noisy_` means the bar was set "
         "by noise rather than by the floor, so this run could not decide — it is "
         "**not** evidence for the shipped width. *reach* is the smallest "
-        "fraction of calls that reached any compared width; below "
-        f"{MIN_REACH_FRACTION * 100:.0f}% the row is refused outright. Across the "
+        "number of calls that reached any compared width, with its share of all "
+        f"calls; a row is refused when that count falls below {MIN_REACH_CALLS}. "
+        "A low share is a caution, not a defect: the calls that reach a width "
+        "are the ones that do the extra work, so a few percent of calls can "
+        "carry most of the difference. Across the "
         f"whole table the spread was max {worst_spread * 100:.1f}%, median "
         f"{median_spread * 100:.1f}%."
     )

@@ -10,24 +10,40 @@ PERFORMANCE
      The cost tracked the number of predicate terms rather than the number of bytes, so
      it hit `skip_ident` hardest and left single-term classes alone. Halving the probe
      halves the trees.
-   - Measured with `cargo bench --bench short_run`, group `lexer_sweep` — a 1 MiB buffer
-     with the cursor swept over the first 64 KiB, so every call asks about a short run
-     while the slice it is handed stays ~960 KiB long. Host: Apple M4 Pro,
+   - Measured with `cargo bench --bench short_run`, group **`realistic_sweep`** — a 1 MiB
+     PromQL fragment with the cursor swept over the first 64 KiB, so every call asks about
+     a short run while the slice it is handed stays ~960 KiB long. Host: Apple M4 Pro,
      aarch64-apple-darwin, **not an idle machine**; figures are the mean of two rounds
      run alternately before/after so both share conditions, and the round-to-round
      spread on that host was 1-5%.
 
-     | `lexer_sweep` group | before | after | vs. plain scalar loop |
-     |---|---|---|---|
-     | `skip_ident` | 47.45 us | 25.83 us | 1.92x -> 1.03x |
-     | `skip_hex_digits` | 35.94 us | 36.56 us | 1.16x -> 1.20x |
-     | `skip_digits` | 34.63 us | 35.95 us | 1.04x -> 1.07x |
-     | `skip_alpha` | 24.59 us | 25.64 us | 1.04x -> 1.10x |
-     | `skip_whitespace` | 34.95 us | 35.25 us | 0.99x -> 1.00x |
+     These numbers were originally taken under the group name `lexer_sweep`. That name was
+     later repurposed to a synthetic wide-run schedule, and the PromQL corpus moved to
+     `realistic_sweep`, which carries exactly the classes named below so each row can still
+     be re-derived by name. Running `lexer_sweep` reproduces a different corpus.
+
+     | `realistic_sweep` group | before | after | vs. plain scalar loop | distinguishing calls |
+     |---|---|---|---|---|
+     | `skip_ident` | 47.45 us | 25.83 us | 1.92x -> 1.03x | 950 of 22793 (4.2%) |
+     | `skip_alpha` | 24.59 us | 25.64 us | 1.04x -> 1.10x | 950 of 32287 (2.9%) |
+     | ~~`skip_hex_digits`~~ | 35.94 us | 36.56 us | ~~1.16x -> 1.20x~~ | **0** of 49391 |
+     | ~~`skip_digits`~~ | 34.63 us | 35.95 us | ~~1.04x -> 1.07x~~ | **0** of 58891 |
+     | ~~`skip_whitespace`~~ | 34.95 us | 35.25 us | ~~0.99x -> 1.00x~~ | **0** of 57941 |
+
+     **The three struck rows are not evidence about probe width and are retained only so
+     the record is not silently trimmed.** A probe width only changes behaviour for runs at
+     least that long; on this corpus those classes never produce a run of 8 bytes, so
+     probe 8 and probe 16 execute identical code on every one of their calls and the
+     timing difference shown is unrelated variation. The counts come from
+     `corpus-profile-realistic.json`, which the bench writes beside the results.
+
+     The two surviving rows rest on few calls — 4.2% and 2.9% — and that is not a defect:
+     the calls that reach a width are the ones that do the extra work, which is how 4.2%
+     of calls move `skip_ident` by 46%. The narrowing was decided on `skip_ident`.
 
      The `long_run` group — one run covering a whole 64 KiB slice, the shape the dispatch
      threshold was tuned for — moved between -0.2% and +3.4% across its five scanners,
-     i.e. within that spread.
+     i.e. within that spread. That group is unchanged and still reproduces by name.
 
      Every ratio above is a same-run comparison against the scalar loop the bench
      measures alongside each scanner, so none of it depends on machine state being

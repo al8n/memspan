@@ -388,6 +388,15 @@ fn corpus_for(pred: impl Fn(u8) -> bool, fill: u8, miss: u8) -> (Vec<u8>, String
     buf.push(miss);
   }
 
+  let profile = profile_of(&buf, &pred);
+  (buf, profile)
+}
+
+/// Records what the sweep will make a scanner do on `buf`.
+///
+/// Computed with the **scalar predicate**, never with the library, so a broken
+/// kernel cannot make a dead corpus look alive.
+fn profile_of(buf: &[u8], pred: impl Fn(u8) -> bool) -> String {
   // Replay the sweep exactly as the benched loop will walk it.
   let mut pos = 0usize;
   let mut advances = Vec::new();
@@ -416,13 +425,12 @@ fn corpus_for(pred: impl Fn(u8) -> bool, fill: u8, miss: u8) -> (Vec<u8>, String
     }
     pairs.push(format!("\"{length}\": {count}"));
   }
-  let profile = format!(
+  format!(
     "\"calls\": {}, \"buf_len\": {}, \"advances\": {{{}}}",
     calls,
     buf.len(),
     pairs.join(", ")
-  );
-  (buf, profile)
+  )
 }
 
 /// The aggregate shape a lexer actually runs: a stream of short tokens, each
@@ -566,35 +574,42 @@ fn bench_lexer_sweep(c: &mut Criterion) {
     ),
   );
 
-  write_corpus_profile(&profiles);
+  write_profile("corpus-profile.json", &profiles);
 
-  // ── realistic_sweep: the corpus PR #14 was decided on ──────────────────────
+  // ── realistic_sweep: the corpus the merged NEON narrowing was decided on ───
   //
   // `lexer_sweep` above trades realism for control: its runs are synthetic so
-  // that every class gets the same length schedule. This group keeps the
-  // original PromQL fragment for the two classes it genuinely exercises, so the
-  // measurement that justified narrowing the NEON probe stays reproducible
-  // rather than becoming a claim about a corpus that no longer exists. It is
-  // outside the sweep filter and is not scored.
+  // that every class gets the same length schedule and every compared width is
+  // reachable. That makes it the wrong place to reproduce the numbers in the
+  // CHANGELOG, which were measured on this PromQL fragment before the group was
+  // repurposed. Those numbers name *this* group, and it carries exactly the
+  // classes they cite so each one can be re-derived by name.
+  //
+  // Its profile is written out too. The CHANGELOG marks the `skip_whitespace`
+  // row as not evidence about probe width; that is a claim about this corpus,
+  // so the corpus records the counts that justify it instead of asking a reader
+  // to take the prose on trust.
   const FRAGMENT: &[u8] =
     b"sum by (job) rate(http_requests_total{code=~\"5..\"}[5m]) / 1024 + x_7 ";
   let realistic: Vec<u8> = FRAGMENT.iter().copied().cycle().take(1024 * 1024).collect();
-  one(
-    c,
-    "realistic_sweep",
-    &realistic,
-    "skip_ident",
-    skip::skip_ident,
-    is_ident,
+
+  let mut realistic_profiles: Vec<String> = Vec::new();
+  macro_rules! realistic_classes {
+    ($(($name:literal, $scanner:path, $pred:path)),+ $(,)?) => {
+      $(
+        realistic_profiles.push(format!("  \"{}\": {{{}}}", $name, profile_of(&realistic, $pred)));
+        one(c, "realistic_sweep", &realistic, $name, $scanner, $pred);
+      )+
+    };
+  }
+  realistic_classes!(
+    ("skip_ident", skip::skip_ident, is_ident),
+    ("skip_alpha", skip::skip_alpha, is_alphabetic),
+    ("skip_hex_digits", skip::skip_hex_digits, is_hex),
+    ("skip_digits", skip::skip_digits, is_digit),
+    ("skip_whitespace", skip::skip_whitespace, is_space),
   );
-  one(
-    c,
-    "realistic_sweep",
-    &realistic,
-    "skip_alpha",
-    skip::skip_alpha,
-    is_alphabetic,
-  );
+  write_profile("corpus-profile-realistic.json", &realistic_profiles);
 
   // ── generic_sweep: the multi-needle scanners ───────────────────────────────
   //
@@ -628,9 +643,9 @@ fn bench_lexer_sweep(c: &mut Criterion) {
 /// scanner classify anything, and this is where it learns that. Emitting it
 /// from the bench rather than recomputing it in the reporter keeps one
 /// definition of what the sweep actually walked.
-fn write_corpus_profile(profiles: &[String]) {
+fn write_profile(file: &str, profiles: &[String]) {
   let home = std::env::var("CRITERION_HOME").unwrap_or_else(|_| "target/criterion".into());
-  let path = std::path::Path::new(&home).join("corpus-profile.json");
+  let path = std::path::Path::new(&home).join(file);
   if let Some(parent) = path.parent() {
     let _ = std::fs::create_dir_all(parent);
   }

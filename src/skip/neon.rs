@@ -14,7 +14,10 @@ const NEON_CHUNK_SIZE: usize = 16;
 /// never fires. Answering such a run with the vector loop costs two serialized
 /// `vshrn` + `vget_lane` SIMD→GPR transfers to learn something a handful of
 /// scalar compares already knew. Deleting the probe outright measures 6-11x
-/// slower on `benches/short_run.rs`'s `lexer_sweep`, so the probe stays.
+/// slower on the PromQL corpus in `benches/short_run.rs`'s `realistic_sweep`
+/// group, so the probe stays. That measurement predates the group rename: it
+/// was taken when the same corpus was called `lexer_sweep`, a name that now
+/// carries a synthetic schedule instead.
 ///
 /// # Why it is shorter than a chunk
 ///
@@ -30,14 +33,21 @@ const NEON_CHUNK_SIZE: usize = 16;
 /// produce byte-identical machine code.
 ///
 /// Shortening the probe is what does help, because it caps how many of those
-/// trees exist. Measured on `lexer_sweep`, two interleaved rounds per setting,
-/// as a ratio to a plain scalar `position` loop:
+/// trees exist. Measured on the PromQL corpus now in `realistic_sweep` (taken
+/// under its former name `lexer_sweep`), two interleaved rounds per setting, as
+/// a ratio to a plain scalar `position` loop:
 ///
 /// | probe | `skip_ident` | `skip_alpha` | `skip_hex_digits` | long runs |
 /// |-------|--------------|--------------|-------------------|-----------|
 /// | 16    | 1.87x        | 1.05x        | 1.14x             | baseline  |
 /// | **8** | **1.01x**    | 1.09x        | 1.21x             | +0.2-1.3% |
 /// | 4     | 1.64x        | 2.12x        | 1.23x             | -         |
+///
+/// The `skip_hex_digits` column is **not** evidence about probe width and is
+/// kept only so the record is not silently trimmed: on that corpus the class
+/// never produces a run of eight bytes, so every compared width executes
+/// identical code on every one of its calls. `corpus-profile-realistic.json`
+/// records the counts. The decision rests on `skip_ident`.
 ///
 /// Eight halves the branch trees while still answering the runs a lexer
 /// actually produces; four gives back more to the vector path than it saves,
