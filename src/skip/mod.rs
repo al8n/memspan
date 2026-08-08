@@ -199,6 +199,23 @@ pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
 /// host cannot time, and it is a **measurement hook, not a tuning API**: with
 /// the cfg unset every backend keeps the width it ships with, and the generated
 /// code is unchanged.
+///
+/// # Why this is arch-gated
+///
+/// Every call site lives in a SIMD backend module, and each of those modules is
+/// itself `cfg`-gated. On a target where none of them compiles — powerpc64,
+/// riscv64gc, s390x, wasm32 without `simd128`, all of which this crate's `cross`
+/// job builds — an ungated helper here is dead code, and that job sets
+/// `RUSTFLAGS=-Dwarnings`, so `dead_code` is a hard build failure rather than a
+/// warning. The gate below is the union of the module gates and has to be kept
+/// in step with them; `#[allow(dead_code)]` would silence the symptom and throw
+/// away which targets it was protecting.
+#[cfg(any(
+  target_arch = "aarch64",
+  target_arch = "x86",
+  target_arch = "x86_64",
+  all(target_arch = "wasm32", target_feature = "simd128"),
+))]
 #[cfg_attr(not(tarpaulin), inline(always))]
 pub(crate) const fn class_probe(default: usize, chunk: usize) -> usize {
   let requested = cfg_select! {
