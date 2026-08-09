@@ -1,3 +1,51 @@
+# UNRELEASED
+
+PERFORMANCE
+
+1. Narrow the SSE4.2 and AVX2 ASCII-class scalar probes from a full chunk to 8 bytes
+   - Affects **x86/x86_64 only**, and only the `skip_ascii_class!` kernels. SSE4.2 goes
+     16 -> 8 and AVX2 32 -> 8. NEON already shipped 8. **AVX-512 and wasm `simd128` are
+     deliberately unchanged** — see below.
+   - Same defect as the NEON fix in 0.1.1, carried to the backends the maintainer's host
+     cannot run: the probe scans a compile-time-constant length, LLVM unrolls it into one
+     short-circuit branch tree per byte, and a caller whose run lengths vary mispredicts
+     in a different copy on every call. The cost tracks the number of predicate *terms*,
+     so it fell on `skip_ident` and `skip_ident_start` and left the single-range classes
+     alone.
+   - Two classes were **slower than the plain scalar `position` loop they replace**.
+     Measured by `.github/workflows/probe-sweep.yml` (run `31298019336`) on an AMD EPYC
+     7763, two interleaved rounds per width, as a ratio to that scalar loop measured in
+     the same run; round-to-round spread on these four cells was 0-2%:
+
+     | class | AVX2 32 -> 8 | SSE4.2 16 -> 8 |
+     |---|---|---|
+     | `skip_ident`       | 1.59 -> **0.96** | 1.41 -> 1.18 |
+     | `skip_ident_start` | 1.24 -> 1.11     | 1.27 -> **0.68** |
+
+     8 is the only width measured that puts `skip_ident` back under scalar on AVX2, and
+     the only one that does so for `skip_ident_start` on SSE4.2. That crossing is the
+     whole justification.
+   - **What this does not fix.** `skip_ident` on SSE4.2 does not reach parity at any width
+     tested: 8 improves it from 1.41 to 1.18, and 4 is nominally better again at 1.16, but
+     both still lose to the scalar loop. `skip_ident_start` on AVX2 likewise stays above
+     1.00 at every width tested.
+   - **What it costs.** The probe is one constant per backend, so all fifteen classes move.
+     On SSE4.2 two classes that were already winning get worse while staying wins:
+     `skip_octal_digits` 0.68 -> 0.84 and `skip_whitespace` 0.65 -> 0.70. The remaining
+     rows improve or hold on both tiers.
+   - **Read the sweep's own caveat before extending this.** Every row came from one shared
+     synthetic run-length schedule derived from two classes and reused for all fifteen, the
+     rows must not be summed, and an equal-weight version of that schedule reversed the
+     direction on fourteen of fifteen of them. Only the two rows above are acted on here,
+     because losing to your own fallback is an absolute failure rather than a weighted
+     preference.
+   - AVX-512 keeps its 64-byte probe and wasm `simd128` keeps its chunk-width probe: the
+     sweep's AVX-512 leg has never run, because GitHub's hosted pool does not offer the
+     feature, and no wasm leg exists. Both would be guesses. `--cfg memspan_class_probe="N"`
+     remains the hook for measuring them on a host that can.
+   - No API change. Every width was held against the independent scalar oracle in
+     `tests/short_run_differential.rs`, which the sweep runs per-width on real x86 hardware.
+
 # 0.1.1 (August 9th, 2026)
 
 PERFORMANCE

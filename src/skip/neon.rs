@@ -55,10 +55,13 @@ const NEON_CHUNK_SIZE: usize = 16;
 /// long-run population — the shape the threshold was tuned for — moves by less
 /// than round-to-round noise, so the trade costs it nothing.
 ///
-/// The same unrolling happens in the SSE4.2, AVX2 and AVX-512 kernels, where
-/// the constant is 16, 32 and 64, so the defect is very likely worse there.
-/// This host is aarch64 and cannot run those backends, and an untested tuning
-/// constant is worth less than a measured one, so they are left alone.
+/// The same unrolling happens in the SSE4.2, AVX2 and AVX-512 kernels. The two
+/// x86 tiers have since been measured by `.github/workflows/probe-sweep.yml`
+/// on an EPYC 7763 and now ship 8 as well, for the same reason and on the same
+/// kind of evidence; their `CLASS_PROBE` constants carry the numbers. AVX-512
+/// still probes a full 64-byte chunk: GitHub's hosted pool does not offer the
+/// feature, so that leg of the sweep has never produced a measurement, and an
+/// untested tuning constant is worth less than a measured one.
 const CLASS_PROBE: usize = super::class_probe(8, NEON_CHUNK_SIZE);
 
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= NEON_CHUNK_SIZE);

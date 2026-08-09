@@ -325,9 +325,15 @@ fn sweep(buf: &[u8], scan: impl Fn(&[u8]) -> usize) -> usize {
 ///
 /// | tier | shipped | candidates | thresholds | needs |
 /// |------|---------|------------|------------|-------|
-/// | `sse42`  | 16 | 8, 4      | 8, 4       | >= 8  |
-/// | `avx2`   | 32 | 16, 8, 4  | 16, 8, 4   | >= 16 |
+/// | `sse42`  | 8  | 16, 4     | 8, 4       | >= 8  |
+/// | `avx2`   | 8  | 32, 16, 4 | 8, 8, 4    | >= 8  |
 /// | `avx512` | 64 | 32, 16, 8 | 32, 16, 8  | >= 32 |
+///
+/// Narrowing the two x86 shipped widths to 8 *relaxed* their requirement —
+/// `avx2` needed runs of 16 when it shipped 32 — so the schedule below is
+/// unchanged and still satisfies every pair. `avx512` remains the binding
+/// constraint at 32, and would stop binding if it were ever measured and
+/// narrowed too; the schedule can then be shortened, not lengthened.
 ///
 /// An earlier version of this schedule ran to 96 bytes, because the reach check
 /// then demanded a call reaching *every compared width* rather than each

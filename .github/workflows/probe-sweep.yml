@@ -13,10 +13,17 @@ name: probe-sweep
 # of them. A measured sweep on aarch64 (#13) found a three-term predicate
 # running at 1.9x a plain scalar loop, and halving the NEON probe recovered it.
 #
-# The SSE4.2, AVX2 and AVX-512 kernels probe 16, 32 and 64 bytes, so the same
-# defect is structurally present and probably worse. Nobody has timed it,
-# because the maintainer's host is aarch64. This workflow produces those
-# numbers so the constants can be tuned from measurement instead of guessed.
+# The SSE4.2, AVX2 and AVX-512 kernels all probed a full chunk — 16, 32 and 64
+# bytes — so the same defect was structurally present and probably worse, and
+# nobody had timed it, because the maintainer's host is aarch64.
+#
+# This workflow has since timed the two x86 tiers, and both now ship a probe of
+# 8: on AVX2 that is the only measured width that puts `skip_ident` back under
+# the scalar loop, and on SSE4.2 the only one that does so for
+# `skip_ident_start`. AVX-512 is unchanged at 64, because the leg that would
+# measure it has never actually run — see the AVX-512 section below. The sweep
+# still compares each shipped width against its neighbours, so a host that has
+# the hardware can revisit any of the three.
 #
 # # Why it is not a gate
 #
@@ -92,14 +99,20 @@ jobs:
           # `cpu_flag` is matched against /proc/cpuinfo. `isolate` pins the
           # dispatcher to this tier by disabling everything above it, so the
           # sweep measures the backend it claims to.
+          #
+          # `default_probe` must equal the `CLASS_PROBE` default that tier's
+          # backend actually ships. The reporter labels that column "(shipped)"
+          # and measures every gain against it, so a stale value here would
+          # report gains against a width the crate no longer uses. It must also
+          # be a member of `probes`, or the reporter cannot find its baseline.
           - tier: sse42
             cpu_flag: sse4_2
-            default_probe: 16
+            default_probe: 8
             probes: "16,8,4"
             isolate: --cfg memspan_disable_avx512 --cfg memspan_disable_avx2
           - tier: avx2
             cpu_flag: avx2
-            default_probe: 32
+            default_probe: 8
             probes: "32,16,8,4"
             isolate: --cfg memspan_disable_avx512
           - tier: avx512
