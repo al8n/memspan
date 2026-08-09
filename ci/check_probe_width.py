@@ -44,9 +44,11 @@ on a table entry whose file was deleted, which is a check quietly holding
 nothing.
 
 The parse is `ci/check_probe_matrix.py`'s, imported rather than rewritten. It
-resolves a symbolic argument against a `const NAME: usize = N;` in the same
-file, applies `class_probe`'s clamp exactly as the function applies it, and
-treats anything it cannot resolve as an error.
+strips comments before reading anything, resolves a symbolic argument against a
+`const NAME: usize = N;` in the same file, applies `class_probe`'s clamp exactly
+as the function applies it, and treats anything it cannot resolve as an error --
+including a declaration written in a shape it cannot read, which is reported as
+unreadable rather than counted as absent.
 
 # What a source check cannot see, and why timing could not see it either
 
@@ -75,7 +77,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 
 import check_probe_matrix
@@ -120,11 +121,14 @@ CARGO_CONFIGS = (".cargo/config.toml", ".cargo/config")
 # `src/skip/mod.rs` documents it; neither sets it, and neither is scanned.
 OVERRIDE_CFG = "memspan_class_probe"
 
-# A file is a backend if it declares the constant at all. Deliberately looser
-# than the parser's pattern: a file that declares `CLASS_PROBE` in a shape the
-# parser cannot read must reach the parser and be refused there, not vanish from
-# the discovered set and be silently unchecked.
-DECLARES_RE = re.compile(r"\bconst\s+CLASS_PROBE\b")
+# A file is a backend if it declares the constant at all, comments excluded.
+# This is the parser's own pattern rather than a second one, so "declares
+# `CLASS_PROBE`" means one thing here and in `ci/check_probe_matrix.py`, and it
+# is deliberately looser than that script's `class_probe(...)` shape: a file
+# that declares `CLASS_PROBE` in a shape the parser cannot read must reach the
+# parser and be refused there, not vanish from the discovered set and be
+# silently unchecked.
+DECLARES_RE = check_probe_matrix.DECLARATION_RE
 
 
 def die(message: str) -> None:
@@ -145,7 +149,9 @@ def discovered(repo_root: str) -> dict[str, str]:
         if not name.endswith(".rs"):
             continue
         relative = f"{BACKEND_DIR}/{name}"
-        if DECLARES_RE.search(check_probe_matrix.read(repo_root, relative, die)):
+        source = check_probe_matrix.read(repo_root, relative, die)
+        code = check_probe_matrix.strip_comments(source, blank_strings=True)
+        if DECLARES_RE.search(code):
             found[name[: -len(".rs")]] = relative
 
     if not found:
@@ -440,7 +446,24 @@ def selftest() -> int:
                 )
             },
             False,
-            "has 0 `const CLASS_PROBE",
+            "cannot read `src/skip/avx2.rs`'s `CLASS_PROBE` declaration",
+        ),
+        # A declaration the parser cannot read is worth nothing on its own: the
+        # width it hides is supplied by a stale comment carrying the shape the
+        # parser does recognise. Read as raw text, that pair parses as a backend
+        # shipping 8 while the compiler ships a whole chunk.
+        (
+            "a commented-out declaration standing in for an unreadable real one",
+            GOOD_SOURCES
+            | {
+                "src/skip/avx2.rs": (
+                    "// const CLASS_PROBE: usize = super::class_probe(8, CHUNK);\n"
+                    "const CHUNK: usize = 32;\n"
+                    "const CLASS_PROBE: usize = super::class_probe(CHUNK / 1, CHUNK);\n"
+                )
+            },
+            False,
+            "cannot read `src/skip/avx2.rs`'s `CLASS_PROBE` declaration",
         ),
         (
             "a symbolic argument that resolves to nothing",

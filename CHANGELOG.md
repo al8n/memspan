@@ -95,10 +95,14 @@ INTERNAL
      publishes a table wrong in three places that looks entirely convincing. It had
      already drifted once. `ci/check_probe_matrix.py` now parses `class_probe(...)` out
      of each `src/skip/<tier>.rs`, applies the same clamp the function applies, and
-     fails on any disagreement; it also holds the sweep's dispatcher-isolation flags
-     against `probe-timing`'s, and is the single source for which tiers must
-     measure. `ci/check_probe_width.py` imports that same `class_probe(...)` parser
-     rather than growing a second one.
+     fails on any disagreement. It reads only what the compiler reads — comments and
+     string literals are blanked first, so a stale `// const CLASS_PROBE: usize =
+     super::class_probe(8, CHUNK);` cannot supply a width — and it counts declarations by
+     name rather than by shape, so a declaration written as something it cannot parse is
+     reported as unreadable instead of being counted as absent and stood in for. It also
+     holds the sweep's dispatcher-isolation flags against `probe-timing`'s, and is the
+     single source for which tiers must measure. `ci/check_probe_width.py` imports that
+     same `class_probe(...)` parser rather than growing a second one.
    - Render the sweep table under `shell: bash`. Without `pipefail`, `probe_sweep.py |
      tee` took `tee`'s exit code, so every structural refusal that reporter makes was
      unreachable — a refusal was written into the summary and the step passed.
