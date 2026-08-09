@@ -53,10 +53,18 @@ unreadable rather than counted as absent.
 # What a source check cannot see, and why timing could not see it either
 
 `--cfg memspan_class_probe="N"` overrides the default at build time. Two of the
-three places that could set it for *every* build of this repository -- a
-`cargo:rustc-cfg` line in `build.rs`, and `rustflags` in `.cargo/config.toml` --
-are checked below, because either would change the shipped width with the source
-still reading `8`.
+three places that could set it for *every* build of this repository --
+`build.rs`, and `rustflags` in `.cargo/config.toml` -- are checked below,
+because either would change the shipped width with the source still reading `8`.
+
+Both refusals are blanket: after comments are stripped, *any* mention of the cfg
+name in either file fails. That is deliberately wider than "a line that emits
+it". `build.rs` prints its cfgs through a `use_feature(feature)` helper, so the
+line carrying `rustc-cfg` carries no cfg name and the line carrying the cfg name
+says nothing about `rustc-cfg`; a rule wanting both on one line saw neither, and
+the next helper would break any rule written by following this one. Neither file
+has a legitimate reason to name this cfg -- `Cargo.toml` is where it is declared
+to `check-cfg`, and `src/skip/mod.rs` is where it is documented and read.
 
 The third is an ad-hoc `RUSTFLAGS` on one build. That is out of reach here, and
 it is out of reach of any check: it is the documented measurement hook, the
@@ -172,18 +180,41 @@ def check_no_ambient_override(repo_root: str) -> list[str]:
     if os.path.exists(build_script):
         scanned.append(BUILD_SCRIPT)
         source = check_probe_matrix.read(repo_root, BUILD_SCRIPT, die)
-        for line in source.splitlines():
-            code = line.split("//", 1)[0]
-            if "rustc-cfg" in code and OVERRIDE_CFG in code:
-                die(
-                    f"`{BUILD_SCRIPT}` emits `{OVERRIDE_CFG}`:\n\n    "
-                    f"{line.strip()}\n\n"
-                    "A build script cfg applies to every build of this crate, "
-                    "including a consumer's, so the shipped probe would be that "
-                    "width while every backend's source still reads its own. "
-                    "That is the one way the constants below can be true and the "
-                    "shipped width still wrong."
-                )
+        # Comments go, strings stay: the cfg name a build script emits lives
+        # inside a string literal, which is the only thing this has to see.
+        code = check_probe_matrix.strip_comments(source)
+        original = source.splitlines()
+        named = [
+            (number, original[number - 1].strip())
+            for number, line in enumerate(code.splitlines(), 1)
+            if OVERRIDE_CFG in line
+        ]
+        if named:
+            die(
+                f"`{BUILD_SCRIPT}` names `{OVERRIDE_CFG}`:\n\n"
+                + "\n".join(f"    {number}: {text}" for number, text in named)
+                + "\n\nA build script cfg applies to every build of this crate, "
+                "including a consumer's, so the shipped probe would be that "
+                "width while every backend's source still reads its own. That "
+                "is the one way the constants below can be true and the shipped "
+                "width still wrong.\n\n"
+                "The refusal is the bare name anywhere outside a comment, not a "
+                f"`rustc-cfg` line that also carries it. `{BUILD_SCRIPT}` "
+                "already routes its emission through `use_feature(feature)`, "
+                "whose printing line carries `rustc-cfg` and no cfg name at "
+                "all, so a rule wanting both on one line would pass "
+                f'`use_feature("{OVERRIDE_CFG}=\\"32\\"")` while it overrode '
+                "every build. Following each helper is an enumeration the next "
+                "helper breaks.\n\n"
+                f"Nothing in `{BUILD_SCRIPT}` has a reason to name that cfg. "
+                "The one shape that could argue for it, a "
+                "`cargo:rustc-check-cfg` declaration, is refused too: "
+                "`Cargo.toml` already declares this cfg under "
+                "`lints.rust.unexpected_cfgs.check-cfg`, and telling a "
+                "declaration from an emission means parsing the emission again, "
+                "which is the thing that failed. If a real reason appears, "
+                "widen this deliberately and say what it is."
+            )
 
     for relative in CARGO_CONFIGS:
         if not os.path.exists(os.path.join(repo_root, relative)):
@@ -499,7 +530,49 @@ def selftest() -> int:
                 )
             },
             False,
-            "emits `memspan_class_probe`",
+            "names `memspan_class_probe`",
+        ),
+        # The same override, routed through the helper this crate's `build.rs`
+        # already has. The emitting line carries `rustc-cfg` and no cfg name; the
+        # line that carries the cfg name never says `rustc-cfg`. A rule wanting
+        # both on one line sees neither.
+        (
+            "a build script that hides the cfg behind its own helper",
+            GOOD_SOURCES
+            | {
+                "build.rs": (
+                    "fn main() {\n"
+                    '  use_feature("memspan_class_probe=\\"32\\"");\n'
+                    "}\n"
+                    "\n"
+                    "fn use_feature(feature: &str) {\n"
+                    '  println!("cargo:rustc-cfg={}", feature);\n'
+                    "}\n"
+                )
+            },
+            False,
+            "names `memspan_class_probe`",
+        ),
+        # The shipped build script's shape, which must keep passing: it routes a
+        # different cfg through that same helper.
+        (
+            "a build script emitting some other cfg through the same helper",
+            GOOD_SOURCES
+            | {
+                "build.rs": (
+                    "fn main() {\n"
+                    '  if std::env::var("CARGO_FEATURE_TARPAULIN").is_ok() {\n'
+                    '    use_feature("tarpaulin");\n'
+                    "  }\n"
+                    "}\n"
+                    "\n"
+                    "fn use_feature(feature: &str) {\n"
+                    '  println!("cargo:rustc-cfg={}", feature);\n'
+                    "}\n"
+                )
+            },
+            True,
+            "",
         ),
         (
             "a build script that only mentions it in a comment",

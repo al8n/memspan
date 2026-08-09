@@ -52,9 +52,12 @@ PERFORMANCE
      `.github/workflows/ci.yml` decides this from the source:
      `ci/check_probe_width.py` holds every `src/skip/<backend>.rs` against the width this
      crate intends, covers NEON and wasm `simd128` as well as the x86 tiers, and refuses a
-     `build.rs` or `.cargo/config.toml` that would override the width behind the source's
-     back. No hardware, no runner and no threshold are involved, so nothing about the
-     verdict moves with the machine GitHub allocated.
+     `build.rs` or `.cargo/config.toml` that so much as names `memspan_class_probe`
+     outside a comment — a blanket rule, because this build script prints its cfgs through
+     a `use_feature(feature)` helper, so the line carrying `rustc-cfg` carries no cfg name
+     and a rule wanting both on one line would have let the override through. No hardware,
+     no runner and no threshold are involved, so nothing about the verdict moves with the
+     machine GitHub allocated.
    - **The timing is evidence, not the gate.** `probe-timing` in the same workflow still
      times the shipped width on both x86 tiers of every pull request, prints each round,
      the median and a reference line derived from the sweep's own shipped and chunk-width
