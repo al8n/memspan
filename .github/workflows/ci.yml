@@ -56,7 +56,7 @@ jobs:
       run: cargo fmt --all -- --check
 
   # The probe-sweep matrix restates the shipped `CLASS_PROBE` of each x86
-  # backend, and `probe-reversion` below restates that workflow's dispatcher
+  # backend, and `probe-timing` below restates that workflow's dispatcher
   # isolation flags. Neither restatement was enforced by anything, and one of
   # them had already gone stale: the matrix carried `default_probe: 16/32`
   # after the constants moved to `8`, which would have made every future sweep
@@ -85,31 +85,68 @@ jobs:
       - name: Drive the sweep's measurement assertions through every state
         run: python3 ci/check_sweep_assertions.py
 
-  # Detects the `CLASS_PROBE` narrowing being reverted. Nothing more.
+  # **The gate on the probe width.** `skip_ident` and `skip_ident_start` were
+  # both slower through the SIMD scanner than through the plain scalar
+  # `position` loop it replaces, on both x86 tiers, and narrowing `CLASS_PROBE`
+  # to 8 is what fixed it. No test in this repository could fail if that were
+  # reverted — the differential suite is a correctness oracle and passes at
+  # every width by design — so the fix was protected by nothing but the commit
+  # message.
   #
-  # `skip_ident` and `skip_ident_start` were both slower through the SIMD
-  # scanner than through the plain scalar `position` loop it replaces, on both
-  # x86 tiers, and narrowing `CLASS_PROBE` to 8 is what fixed it. No test in
-  # this repository could fail if that were reverted — the differential suite
-  # is a correctness oracle and passes at every width by design — so the fix
-  # was protected by nothing but the commit message until this job existed.
+  # `CLASS_PROBE` is a compile-time constant per backend, so "has the narrowing
+  # been reverted" is a question about the source, and this job answers it by
+  # reading the source: no hardware, no runner, no benchmark, no band. It is
+  # not a constant asserted against itself — the intended width per backend
+  # lives in `ci/check_probe_width.py`, held against what each
+  # `src/skip/<backend>.rs` declares, so a revert fails until someone edits the
+  # table to say the crate now intends a chunk-width probe. It also refuses a
+  # `build.rs` or `.cargo/config.toml` that would override the width for every
+  # build behind the source's back.
   #
-  # **This job does not certify scalar parity, and no longer describes itself
-  # as if it did.** Two of the four monitored cells legitimately sit above 1.00
-  # at the shipped width — SSE4.2 `skip_ident` at 1.18, AVX2 `skip_ident_start`
-  # at 1.11 — so a bar at parity would fail correct code, and a bar loose
-  # enough to pass them cannot answer a parity question. What it does answer is
-  # whether the probe has gone back to a chunk width, which moves `skip_ident`
-  # to 1.41 on SSE4.2 and 1.59 on AVX2 and `skip_ident_start` to 1.26 and 1.24:
-  # far outside any spread these benchmarks show. `ci/check_probe_reversion.py`
-  # carries both bands, the measurements that place them, and the margin on
-  # each side.
+  # The timing job below used to make this call, from five benchmark rounds
+  # against a band. That verdict was never sound: the bands were calibrated on
+  # an AMD EPYC 7763, `ubuntu-latest` pins no CPU model, and a model shift moves
+  # every round together — so a clean tree could fail on a slower host and a
+  # reverted one pass on a faster one. It now reports and this job decides.
   #
-  # **It reports; it does not block.** This repository has no branch protection
-  # rule and no ruleset, so a red leg here is visible on the pull request and a
-  # maintainer can still merge or push directly past it. Making it required is
-  # a repository setting; if that is ever enabled this comment should say so,
-  # and it must never claim more than the configuration delivers.
+  # **It reports a breach loudly; it does not stop a merge.** This repository
+  # has no branch protection rule and no ruleset, so a red check here is
+  # visible on the pull request and a maintainer can still merge or push
+  # directly past it. Making it required is a repository setting; if that is
+  # ever enabled this comment should say so, and it must never claim more than
+  # the configuration delivers.
+  #
+  # Python only, no toolchain, a second or two.
+  probe-width:
+    name: probe-width
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Run before the check itself, so a gate that cannot fail is caught even
+      # on a run where the tree happens to be clean.
+      - name: Prove the width check bites
+        run: python3 ci/check_probe_width.py --selftest
+      - name: Check every backend against its intended probe width
+        shell: bash
+        run: python3 ci/check_probe_width.py | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # **Evidence, not a verdict.** This job times the shipped width against the
+  # plain scalar loop on both x86 tiers and prints what it measured. A ratio
+  # over its reference line is annotated as a warning and **does not fail the
+  # job**; `probe-width` above is what decides whether the probe is still
+  # narrow, and it decides it from the source.
+  #
+  # Absence still fails. Every missing series, round or result set is an error
+  # in `ci/report_probe_timing.py`, because a report that measures nothing and
+  # exits 0 is the defect this repository already shipped once, in a sweep leg
+  # whose every step was skipped by one shared condition.
+  #
+  # `runs-on: ubuntu-latest` selects a generic hosted x64 VM. It does **not**
+  # pin the AMD EPYC 7763 the recorded observations came from, and nothing here
+  # pretends otherwise: the CPU model is read off the runner and printed into
+  # the report, so a reader can see what produced the numbers. That was a
+  # defect while this job held a verdict, and is merely a caveat now that it
+  # holds none.
   #
   # This is not the probe sweep. The sweep compares several widths, takes tens
   # of minutes, and cannot be attached to a push without becoming a check
@@ -118,15 +155,15 @@ jobs:
   # five short rounds. Both series are timed in the same process on the same
   # corpus, so the ratio carries no dependence on runner speed or on a stored
   # baseline.
-  probe-reversion:
-    name: probe-reversion-${{ matrix.tier }}
+  probe-timing:
+    name: probe-timing-${{ matrix.tier }}
     runs-on: ubuntu-latest
     env:
-      # One number, read by the bench loop and by the check below, so the count
-      # of rounds written and the count required cannot drift apart. Five and
-      # not two: the statistic is the median, three of five rounds have to
-      # agree to move the verdict, and an even count makes the median the mean
-      # of the middle pair. See `ci/check_probe_reversion.py`.
+      # One number, read by the bench loop and by the report below, so the
+      # count of rounds written and the count required cannot drift apart. Five
+      # and not two: the statistic is the median, three of five rounds have to
+      # agree to move it, and an even count makes the median the mean of the
+      # middle pair. See `ci/report_probe_timing.py`.
       ROUNDS: 5
     strategy:
       fail-fast: false
@@ -135,7 +172,9 @@ jobs:
           # `isolate` pins the dispatcher, which takes the highest available
           # tier, so isolating one means disabling exactly the tiers above it.
           # `ci/check_probe_matrix.py` derives that set from the tier order and
-          # fails on any difference, here and in `probe-sweep.yml`.
+          # fails on any difference, here and in `probe-sweep.yml`. It matters
+          # to a report as much as it did to a gate: an unpinned leg publishes
+          # one tier's timings under another tier's name.
           #
           # Nothing else would. Under-pinning is silent and total — an SSE4.2
           # leg that forgot `memspan_disable_avx2` would time the AVX2 kernel
@@ -158,31 +197,41 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target-reversion
-          key: ${{ runner.os }}-probe-reversion-${{ matrix.tier }}-${{ hashFiles('**/Cargo.lock') }}
+            target-timing
+          key: ${{ runner.os }}-probe-timing-${{ matrix.tier }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-probe-reversion-${{ matrix.tier }}-
+            ${{ runner.os }}-probe-timing-${{ matrix.tier }}-
       - name: Install Rust
         run: rustup update stable && rustup default stable
 
-      # Run before anything is measured, so a check that cannot fail is caught
-      # even on a run where the measurement never happens.
-      - name: Prove the reversion check bites
-        run: python3 ci/check_probe_reversion.py --selftest
+      # Run before anything is measured, so a report whose absence checks
+      # cannot fire is caught even on a run where the measurement never
+      # happens.
+      - name: Prove the timing report's absence checks bite
+        run: python3 ci/report_probe_timing.py --selftest
 
-      # Not a skip. This job pins `runs-on: ubuntu-latest` precisely to get
-      # this hardware, so its absence is a broken runner and not an excused
-      # leg — and a perf check that quietly stands down when it cannot measure
-      # is the failure this repository already had once, in probe-sweep.yml.
-      - name: Require the hardware these bands were measured on
+      # Not a skip, and not a claim about which machine this is. `ubuntu-latest`
+      # selects a generic hosted x64 VM; the flag is required because without it
+      # the dispatcher would fall back below the tier this leg labels, so the
+      # rows would be published under the wrong name. A leg that quietly stands
+      # down when it cannot measure is the failure this repository already had
+      # once, in probe-sweep.yml.
+      #
+      # The model is recorded rather than required: it is passed to the report
+      # as `--host`, so every row says what ran it, and a reader can see whether
+      # this run is comparable to the AMD EPYC 7763 the reference lines came
+      # from.
+      - name: Require the tier's CPU flag, and record the model
         shell: bash
         run: |
           if ! grep -qw "${{ matrix.cpu_flag }}" /proc/cpuinfo; then
-            echo "::error::this runner reports no ${{ matrix.cpu_flag }}, so the ${{ matrix.tier }} bands cannot be applied"
+            echo "::error::this runner reports no ${{ matrix.cpu_flag }}, so a ${{ matrix.tier }} row would name a tier this host cannot run"
             grep -m1 'model name' /proc/cpuinfo || true
             exit 1
           fi
-          echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)"
+          model=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)
+          echo "CPU: ${model}"
+          echo "PROBE_TIMING_HOST=${model}" >> "$GITHUB_ENV"
 
       # `RUSTFLAGS` deliberately omits the workflow-level `-Dwarnings` — the
       # isolating cfgs make some backends dead code, and this job's business is
@@ -190,8 +239,8 @@ jobs:
       - name: Time the shipped width against the scalar loop
         shell: bash
         env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/target-reversion
-          CRITERION_HOME: ${{ github.workspace }}/criterion-reversion
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target-timing
+          CRITERION_HOME: ${{ github.workspace }}/criterion-timing
           RUSTFLAGS: ${{ matrix.isolate }}
         run: |
           for round in $(seq 1 "$ROUNDS"); do
@@ -203,15 +252,16 @@ jobs:
             echo "::endgroup::"
           done
 
-      # The bands are not restated here. They live in the script, which is also
-      # what documents the measurements that place them; a workflow copy could
-      # pass a looser number than that file describes and nothing would notice.
-      - name: Check the shipped width against its bands
+      # The reference lines are not restated here. The script derives them from
+      # the observations it records, and a workflow copy could print a different
+      # number than the one it documents.
+      - name: Report the shipped width against the scalar loop
         shell: bash
         run: |
-          python3 ci/check_probe_reversion.py \
-            --criterion-home "${{ github.workspace }}/criterion-reversion" \
+          python3 ci/report_probe_timing.py \
+            --criterion-home "${{ github.workspace }}/criterion-timing" \
             --tier "${{ matrix.tier }}" \
+            --host "$PROBE_TIMING_HOST" \
             --rounds "$ROUNDS" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 

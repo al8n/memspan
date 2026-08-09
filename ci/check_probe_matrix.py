@@ -18,7 +18,7 @@ else, and every one of them was, or still is, only a comment:
   matrix carried `16`/`32` after the constants moved to `8`, and nothing
   noticed until a human read the diff.
 * `isolate` pins the dispatcher to the tier the leg claims to measure, in two
-  workflows at once — the sweep and `probe-reversion` in `ci.yml`. If the SSE4.2
+  workflows at once — the sweep and `probe-timing` in `ci.yml`. If the SSE4.2
   leg of either lost `--cfg memspan_disable_avx2` it would time the AVX2 kernel
   and publish it as SSE4.2, under a green tick.
 
@@ -61,17 +61,16 @@ import os
 import re
 import sys
 import tomllib
+from collections.abc import Callable
 
 try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only on a host without PyYAML
-    print(
-        "\n**probe-matrix check failed:** PyYAML is not importable, so the "
-        "workflow matrix cannot be read. Install it (`python3 -m pip install "
-        "pyyaml`) rather than skipping this check: the whole point of the "
-        "script is that a coupling nobody verifies goes stale silently.\n"
-    )
-    sys.exit(1)
+    # Reported by `matrix_include`, the only function that needs it, rather than
+    # at import time. `ci/check_probe_width.py` imports the source parser below
+    # and reads no YAML at all; killing that import here would make a check that
+    # needs no dependency fail for want of one.
+    yaml = None
 
 SWEEP_WORKFLOW = ".github/workflows/probe-sweep.yml"
 CI_WORKFLOW = ".github/workflows/ci.yml"
@@ -92,10 +91,10 @@ TIER_ORDER = ("sse42", "avx2", "avx512")
 X86_BACKENDS = {tier: f"src/skip/{tier}.rs" for tier in TIER_ORDER}
 
 # Tiers whose hardware every GitHub-hosted x86 runner has, and which the
-# pull-request reversion check therefore must cover. AVX-512 is absent on
-# purpose: hosted runners do not have it, which is why the sweep's AVX-512 leg
-# has never produced a measurement.
-REVERSION_TIERS = {"sse42", "avx2"}
+# pull-request timing report therefore must cover. AVX-512 is absent on purpose:
+# hosted runners do not have it, which is why the sweep's AVX-512 leg has never
+# produced a measurement.
+TIMING_TIERS = {"sse42", "avx2"}
 
 CLASS_PROBE_RE = re.compile(
     r"const\s+CLASS_PROBE\s*:\s*usize\s*=\s*super::class_probe\(\s*"
@@ -109,12 +108,22 @@ def die(message: str) -> None:
     sys.exit(1)
 
 
-def read(repo_root: str, relative: str) -> str:
+# `read` and `probe_parts` are what `ci/check_probe_width.py` calls, so every
+# function on that path takes the reporter to use. The default keeps this
+# script's own prefix; the importer passes its own, because a message headed
+# "probe-matrix check failed" from a job named `probe-width` sends the reader to
+# the wrong file. Nothing else about the parse differs, which is the point:
+# there is one `class_probe(...)` parser in this repository and both checks
+# call it.
+Fail = Callable[[str], None]
+
+
+def read(repo_root: str, relative: str, fail: Fail = die) -> str:
     try:
         with open(os.path.join(repo_root, relative)) as handle:
             return handle.read()
     except OSError as err:
-        die(f"cannot read `{relative}`: {err}")
+        fail(f"cannot read `{relative}`: {err}")
         raise  # unreachable, keeps type checkers happy
 
 
@@ -133,16 +142,32 @@ def const_value(source: str, name: str) -> int | None:
     return int(found[0].replace("_", ""))
 
 
-def shipped_probe(source: str, relative: str) -> int:
+def shipped_probe(source: str, relative: str, fail: Fail = die) -> int:
     """The `CLASS_PROBE` this backend ships, clamp included."""
+    default, chunk = probe_parts(source, relative, fail)
+
+    # `skip::class_probe` clamps: `if probe > chunk { chunk } else { probe }`.
+    # The matrix has to carry the width the crate ships, which is the clamped
+    # one -- `avx512` writes `class_probe(CHUNK, CHUNK)` and ships 64.
+    return min(default, chunk)
+
+
+def probe_parts(source: str, relative: str, fail: Fail = die) -> tuple[int, int]:
+    """`class_probe`'s two arguments, resolved: `(default, chunk)`.
+
+    Split out from `shipped_probe` because `ci/check_probe_width.py` needs the
+    chunk as well as the clamped result: it records "a full chunk" as an intent
+    in its own right, and a backend that means to probe a whole vector must not
+    be pinned to whatever integer that chunk happens to be today.
+    """
     matches = CLASS_PROBE_RE.findall(source)
     if len(matches) != 1:
-        die(
+        fail(
             f"`{relative}` has {len(matches)} `const CLASS_PROBE: usize = "
             "super::class_probe(..)` definitions, not 1. With none, the backend "
             "stopped declaring its probe where this script reads it and the "
-            "matrix is now checked against nothing; with more than one, there is "
-            "no single shipped width to check against."
+            "width it ships is now checked against nothing; with more than one, "
+            "there is no single shipped width to check against."
         )
 
     default_arg, chunk_arg = matches[0]
@@ -153,7 +178,7 @@ def shipped_probe(source: str, relative: str) -> int:
         ("chunk", chunk_arg, chunk),
     ):
         if value is None:
-            die(
+            fail(
                 f"cannot resolve the {label} argument `{arg}` of "
                 f"`class_probe` in `{relative}` to an integer. It is neither a "
                 "literal nor a uniquely-defined `const ...: usize = N;` in that "
@@ -163,10 +188,7 @@ def shipped_probe(source: str, relative: str) -> int:
                 "unchecked."
             )
 
-    # `skip::class_probe` clamps: `if probe > chunk { chunk } else { probe }`.
-    # The matrix has to carry the width the crate ships, which is the clamped
-    # one -- `avx512` writes `class_probe(CHUNK, CHUNK)` and ships 64.
-    return min(default, chunk)
+    return default, chunk
 
 
 def declared_disable_cfgs(repo_root: str) -> set[str]:
@@ -268,6 +290,13 @@ def check_isolation(
 
 
 def matrix_include(workflow_text: str, relative: str, job: str) -> list[dict]:
+    if yaml is None:
+        die(
+            "PyYAML is not importable, so the workflow matrix cannot be read. "
+            "Install it (`python3 -m pip install pyyaml`) rather than skipping "
+            "this check: the whole point of the script is that a coupling "
+            "nobody verifies goes stale silently."
+        )
     try:
         doc = yaml.safe_load(workflow_text)
     except yaml.YAMLError as err:
@@ -391,27 +420,26 @@ def check(repo_root: str) -> list[str]:
             "was added to end."
         )
 
-    # `probe-reversion` in `ci.yml` pins the dispatcher for the same tiers.
-    # Both matrices are held against the dispatcher's tier order rather than
-    # against each other, so a flag that is wrong the same way in both still
-    # fails.
+    # `probe-timing` in `ci.yml` pins the dispatcher for the same tiers. Both
+    # matrices are held against the dispatcher's tier order rather than against
+    # each other, so a flag that is wrong the same way in both still fails.
     ci_text = read(repo_root, CI_WORKFLOW)
-    reversion = matrix_include(ci_text, CI_WORKFLOW, "probe-reversion")
-    reversion_tiers = {entry["tier"] for entry in reversion}
-    if reversion_tiers != REVERSION_TIERS:
+    timing = matrix_include(ci_text, CI_WORKFLOW, "probe-timing")
+    timing_tiers = {entry["tier"] for entry in timing}
+    if timing_tiers != TIMING_TIERS:
         die(
-            f"`probe-reversion` in `{CI_WORKFLOW}` covers "
-            + (", ".join(f"`{t}`" for t in sorted(reversion_tiers)) or "nothing")
+            f"`probe-timing` in `{CI_WORKFLOW}` covers "
+            + (", ".join(f"`{t}`" for t in sorted(timing_tiers)) or "nothing")
             + ", but every hosted x86 runner has "
-            + ", ".join(f"`{t}`" for t in sorted(REVERSION_TIERS))
-            + " and the check must cover exactly those. A tier dropped from it "
-            "is a tier whose probe can be widened again with nothing measuring "
-            "it."
+            + ", ".join(f"`{t}`" for t in sorted(TIMING_TIERS))
+            + " and the report must cover exactly those. A tier dropped from it "
+            "is a tier whose shipped width goes unreported; the width itself is "
+            "gated by `ci/check_probe_width.py`, which needs no runner."
         )
 
     declared = declared_disable_cfgs(repo_root)
     check_isolation(sweep, SWEEP_WORKFLOW, declared, "the sweep")
-    check_isolation(reversion, CI_WORKFLOW, declared, "`probe-reversion`")
+    check_isolation(timing, CI_WORKFLOW, declared, "`probe-timing`")
 
     return required
 
@@ -441,7 +469,7 @@ def selftest() -> int:
     """Plant every drift this script claims to catch, and require each to fail."""
     import tempfile
 
-    def workflow(entries: str, reversion: str | None = None) -> tuple[str, str]:
+    def workflow(entries: str, timing: str | None = None) -> tuple[str, str]:
         sweep_yaml = (
             "name: probe-sweep\n"
             "on:\n  workflow_dispatch:\n"
@@ -452,7 +480,7 @@ def selftest() -> int:
             "      matrix:\n"
             "        include:\n" + entries
         )
-        reversion_entries = reversion if reversion is not None else (
+        timing_entries = timing if timing is not None else (
             f"          - tier: sse42\n            isolate: {ISO_SSE42}\n"
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n"
         )
@@ -460,11 +488,11 @@ def selftest() -> int:
             "name: CI\n"
             "on:\n  pull_request:\n"
             "jobs:\n"
-            "  probe-reversion:\n"
+            "  probe-timing:\n"
             "    runs-on: ubuntu-latest\n"
             "    strategy:\n"
             "      matrix:\n"
-            "        include:\n" + reversion_entries
+            "        include:\n" + timing_entries
         )
         return sweep_yaml, ci_yaml
 
@@ -603,7 +631,7 @@ def selftest() -> int:
             None, good_sources, False, "no sweep tier has",
         ),
         (
-            "the reversion check's SSE4.2 leg stopped disabling AVX2",
+            "the timing report's SSE4.2 leg stopped disabling AVX2",
             good_matrix,
             f"          - tier: sse42\n            isolate: {ISO_AVX2}\n"
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n",
@@ -656,7 +684,7 @@ def selftest() -> int:
             None, good_sources, False, "has no `isolate`",
         ),
         (
-            "a tier dropped from the reversion check",
+            "a tier dropped from the timing report",
             good_matrix,
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n",
             good_sources, False, "must cover exactly those",
@@ -670,9 +698,9 @@ def selftest() -> int:
     ]
 
     failures: list[str] = []
-    for label, entries, reversion, sources, expect_ok, needle in cases:
+    for label, entries, timing, sources, expect_ok, needle in cases:
         with tempfile.TemporaryDirectory() as root:
-            sweep_yaml, ci_yaml = workflow(entries, reversion)
+            sweep_yaml, ci_yaml = workflow(entries, timing)
             os.makedirs(os.path.join(root, ".github", "workflows"))
             os.makedirs(os.path.join(root, "src", "skip"))
             with open(os.path.join(root, SWEEP_WORKFLOW), "w") as handle:
@@ -750,7 +778,7 @@ def main() -> int:
 
     print(
         "probe-sweep matrix agrees with the shipped constants, the swept sets, "
-        "and the reversion check's isolation flags; tiers that must measure: "
+        "and the timing report's isolation flags; tiers that must measure: "
         + ", ".join(required)
     )
     return 0
