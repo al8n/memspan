@@ -419,14 +419,17 @@ jobs:
             echo "::error::the matrix names no tier that must measure"
             exit 1
           fi
+          # `sed`, not `printf '  %s\n'`: these are multi-line strings, and
+          # printf indents only the first line of one, which reads as a
+          # one-element list and misdescribes the very thing being diagnosed.
           echo "tiers that must measure:"
-          printf '  %s\n' "$required"
+          printf '%s\n' "$required" | sed 's/^/  /'
 
           artifacts=$(gh api --paginate \
             "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
             --jq '.artifacts[].name')
           echo "artifacts this run produced:"
-          printf '  %s\n' "${artifacts:-<none>}"
+          printf '%s\n' "${artifacts:-<none>}" | sed 's/^/  /'
 
           missing=()
           for tier in $required; do
