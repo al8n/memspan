@@ -57,6 +57,23 @@ env:
 # `ci.yml`, which runs the test suite under wasmtime with
 # `+simd128`. Revisit when rust-lang/rust#81684 is resolved.
 
+concurrency:
+  # A new run on a branch cancels the old one; every commit on a trunk keeps its own verdict.
+  #
+  # Both halves are load-bearing. The sha enters the group key ONLY on a trunk, so each
+  # trunk commit gets its own group; `cancel-in-progress: false` alone would not protect
+  # it, because a run queued into a group that already holds one in progress cancels
+  # whichever run was PENDING there regardless of that setting.
+  #
+  # The predicate names both `main` and `dev`: the trunk is `main` here, `dev` in pql and
+  # painty. One identical block across every workflow in every repo -- the recorded failure
+  # mode is a fix landing in one file and dying there. The unused name costs nothing.
+  #
+  # It keys on the REF, not on `github.event_name`. An event-keyed predicate leaves direct
+  # pushes uncancelled, which is how these repositories accumulated a seventy-deep queue.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.sha || '' }}
+  cancel-in-progress: ${{ !(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
+
 jobs:
   coverage:
     name: coverage (${{ matrix.label }})
