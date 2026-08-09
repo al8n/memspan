@@ -64,7 +64,19 @@ const NEON_CHUNK_SIZE: usize = 16;
 /// untested tuning constant is worth less than a measured one.
 const CLASS_PROBE: usize = super::class_probe(8, NEON_CHUNK_SIZE);
 
+// The safety bound holds in every build, sweep legs included: the kernels slice
+// `&input[..CLASS_PROBE]` behind a `len >= NEON_CHUNK_SIZE` guard. The shipped
+// width is a separate claim and a sweep leg deliberately changes it; see
+// `super::CLASS_PROBE_OVERRIDE`.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= NEON_CHUNK_SIZE);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8,
+  "NEON ships an 8-byte ASCII-class probe. Widening it reverts the 0.1.1 \
+   narrowing that no test in this crate can fail on, so it fails here instead. \
+   The measurement that chose 8 is in `CLASS_PROBE`'s doc comment above; moving \
+   this number means editing that comment in the same commit."
+);
 
 /// Pack a 16-byte byte-mask (`0xFF`/`0x00` per lane) into a `u64` where each
 /// 4-bit nibble represents one lane. The first matching lane is then at bit

@@ -85,29 +85,40 @@ jobs:
       - name: Drive the sweep's measurement assertions through every state
         run: python3 ci/check_sweep_assertions.py
 
-  # **The gate on the probe width.** `skip_ident` and `skip_ident_start` were
-  # both slower through the SIMD scanner than through the plain scalar
-  # `position` loop it replaces, on both x86 tiers, and narrowing `CLASS_PROBE`
-  # to 8 is what fixed it. No test in this repository could fail if that were
-  # reverted — the differential suite is a correctness oracle and passes at
-  # every width by design — so the fix was protected by nothing but the commit
-  # message.
+  # **No job gates the probe width, because every job does.** `skip_ident` and
+  # `skip_ident_start` were both slower through the SIMD scanner than through
+  # the plain scalar `position` loop it replaces, on both x86 tiers, and
+  # narrowing `CLASS_PROBE` to 8 is what fixed it. No test in this repository
+  # could fail if that were reverted — the differential suite is a correctness
+  # oracle and passes at every width by design — so each backend now asserts its
+  # own width at compile time, beside the constant:
   #
-  # `CLASS_PROBE` is a compile-time constant per backend, so "has the narrowing
-  # been reverted" is a question about the source, and this job answers it by
-  # reading the source: no hardware, no runner, no benchmark, no band. It is
-  # not a constant asserted against itself — the intended width per backend
-  # lives in `ci/check_probe_width.py`, held against what each
-  # `src/skip/<backend>.rs` declares, so a revert fails until someone edits the
-  # table to say the crate now intends a chunk-width probe. It also refuses a
-  # `build.rs` or `.cargo/config.toml` that would override the width for every
-  # build behind the source's back.
+  #     const _: () = assert!(super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8);
   #
-  # The timing job below used to make this call, from five benchmark rounds
+  # rustc evaluates that wherever the module compiles, so a widened probe is a
+  # failed build in `clippy`, `build`, `test` and `test-sde` for the three x86
+  # tiers, in `cross` and the aarch64 `miri` legs for NEON, and in
+  # `test-wasm-simd128` for wasm `simd128`. A Python parser used to decide this
+  # by reading the source, and four review rounds went into teaching it what the
+  # compiler already knew — comments, `cfg`-inactive items, `macro_rules!`
+  # bodies, the clamp inside `class_probe` — each round finding another way for
+  # the text to differ from the constant. `CLASS_PROBE_OVERRIDE` in
+  # `src/skip/mod.rs` documents what replaced it.
+  #
+  # **This job covers the one case the compiler cannot see.** Those assertions
+  # stand down when `--cfg memspan_class_probe="N"` is set, because a sweep leg
+  # sets it deliberately. An ambient override therefore moves the width *and*
+  # disables the assertion that would have noticed. So this job runs a build and
+  # reads the `--cfg` arguments rustc was actually handed, which catches that
+  # cfg however it arrived: `RUSTFLAGS`, `.cargo/config.toml`, or a
+  # `cargo:rustc-cfg` line in `build.rs`. Reading the real invocation rather
+  # than scanning those three files is the same correction, one level down.
+  #
+  # The timing job below used to make the width call, from five benchmark rounds
   # against a band. That verdict was never sound: the bands were calibrated on
   # an AMD EPYC 7763, `ubuntu-latest` pins no CPU model, and a model shift moves
   # every round together — so a clean tree could fail on a slower host and a
-  # reverted one pass on a faster one. It now reports and this job decides.
+  # reverted one pass on a faster one. It reports; the compiler decides.
   #
   # **It reports a breach loudly; it does not stop a merge.** This repository
   # has no branch protection rule and no ruleset, so a red check here is
@@ -116,25 +127,28 @@ jobs:
   # ever enabled this comment should say so, and it must never claim more than
   # the configuration delivers.
   #
-  # Python only, no toolchain, a second or two.
-  probe-width:
-    name: probe-width
+  # A toolchain and a few `cargo check` runs of a crate with no dependencies.
+  probe-override:
+    name: probe-override
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
       # Run before the check itself, so a gate that cannot fail is caught even
       # on a run where the tree happens to be clean.
-      - name: Prove the width check bites
-        run: python3 ci/check_probe_width.py --selftest
-      - name: Check every backend against its intended probe width
+      - name: Prove the override check bites
+        run: python3 ci/check_probe_override.py --selftest
+      - name: Read the cfgs a real build is handed
         shell: bash
-        run: python3 ci/check_probe_width.py | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 ci/check_probe_override.py | tee -a "$GITHUB_STEP_SUMMARY"
 
   # **Evidence, not a verdict.** This job times the shipped width against the
   # plain scalar loop on both x86 tiers and prints what it measured. A ratio
   # over its reference line is annotated as a warning and **does not fail the
-  # job**; `probe-width` above is what decides whether the probe is still
-  # narrow, and it decides it from the source.
+  # job**; the compile-time assertion in each backend is what decides whether
+  # the probe is still narrow, and this job cannot even run without satisfying
+  # it, since it builds the crate.
   #
   # Absence still fails. Every missing series, round or result set is an error
   # in `ci/report_probe_timing.py`, because a report that measures nothing and

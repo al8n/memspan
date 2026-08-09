@@ -79,15 +79,13 @@ import os
 import re
 import sys
 import tomllib
-from collections.abc import Callable
 
 try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only on a host without PyYAML
     # Reported by `matrix_include`, the only function that needs it, rather than
-    # at import time. `ci/check_probe_width.py` imports the source parser below
-    # and reads no YAML at all; killing that import here would make a check that
-    # needs no dependency fail for want of one.
+    # at import time, so that the parts of this script which read no YAML still
+    # run on a host without PyYAML.
     yaml = None
 
 SWEEP_WORKFLOW = ".github/workflows/probe-sweep.yml"
@@ -123,8 +121,7 @@ CLASS_PROBE_RE = re.compile(
 # deliberately looser than `CLASS_PROBE_RE`: the count must not fall when the
 # declaration is written in a shape the parser cannot read, because a checker
 # that skips what it cannot read is a checker holding nothing while reporting a
-# width. `ci/check_probe_width.py` discovers backends with the same pattern, so
-# "declares `CLASS_PROBE`" means one thing in this repository.
+# width.
 DECLARATION_RE = re.compile(r"\bconst\s+CLASS_PROBE\b")
 STATEMENT_RE = re.compile(r"\bconst\s+CLASS_PROBE\b[^;]*;")
 
@@ -144,22 +141,12 @@ def die(message: str) -> None:
     sys.exit(1)
 
 
-# `read` and `probe_parts` are what `ci/check_probe_width.py` calls, so every
-# function on that path takes the reporter to use. The default keeps this
-# script's own prefix; the importer passes its own, because a message headed
-# "probe-matrix check failed" from a job named `probe-width` sends the reader to
-# the wrong file. Nothing else about the parse differs, which is the point:
-# there is one `class_probe(...)` parser in this repository and both checks
-# call it.
-Fail = Callable[[str], None]
-
-
-def read(repo_root: str, relative: str, fail: Fail = die) -> str:
+def read(repo_root: str, relative: str) -> str:
     try:
         with open(os.path.join(repo_root, relative)) as handle:
             return handle.read()
     except OSError as err:
-        fail(f"cannot read `{relative}`: {err}")
+        die(f"cannot read `{relative}`: {err}")
         raise  # unreachable, keeps type checkers happy
 
 
@@ -199,20 +186,16 @@ def literal_end(source: str, index: int) -> int | None:
     return char.end() if char else None
 
 
-def strip_comments(source: str, *, blank_strings: bool = False) -> str:
-    """Blank every Rust comment, keeping the file's length and its line breaks.
+def strip_comments(source: str) -> str:
+    """Blank every Rust comment and literal, keeping length and line breaks.
 
     Only text the compiler reads can answer a question about what the crate
-    compiles, so a commented-out declaration must not be one. The same rule
-    already governs the `.cargo/config.toml` scan in `ci/check_probe_width.py`;
-    applying it to Rust and not to TOML was an inconsistency a stale comment
-    could be aimed at.
+    compiles, so a commented-out declaration must not be one, and neither must
+    one quoted inside a `&str`. Literals are still *scanned* rather than
+    ignored, because a `//` inside a string opens no comment.
 
     Line breaks survive so that line numbers in the output still address the
-    original file, and `blank_strings` blanks string and char literals as well.
-    That is on for the source parse, where a declaration quoted inside a `&str`
-    is no more a declaration than one inside a comment, and off for the
-    `build.rs` scan, which is looking for a cfg name that lives in a string.
+    original file.
     """
     out: list[str] = []
     index = 0
@@ -245,7 +228,7 @@ def strip_comments(source: str, *, blank_strings: bool = False) -> str:
         end = literal_end(source, index)
         if end is not None:
             literal = source[index:end]
-            out.append(blank(literal) if blank_strings else literal)
+            out.append(blank(literal))
             index = end
             continue
 
@@ -269,9 +252,9 @@ def const_value(source: str, name: str) -> int | None:
     return int(found[0].replace("_", ""))
 
 
-def shipped_probe(source: str, relative: str, fail: Fail = die) -> int:
+def shipped_probe(source: str, relative: str) -> int:
     """The `CLASS_PROBE` this backend ships, clamp included."""
-    default, chunk = probe_parts(source, relative, fail)
+    default, chunk = probe_parts(source, relative)
 
     # `skip::class_probe` clamps: `if probe > chunk { chunk } else { probe }`.
     # The matrix has to carry the width the crate ships, which is the clamped
@@ -279,17 +262,18 @@ def shipped_probe(source: str, relative: str, fail: Fail = die) -> int:
     return min(default, chunk)
 
 
-def probe_parts(source: str, relative: str, fail: Fail = die) -> tuple[int, int]:
+def probe_parts(source: str, relative: str) -> tuple[int, int]:
     """`class_probe`'s two arguments, resolved: `(default, chunk)`.
 
-    Split out from `shipped_probe` because `ci/check_probe_width.py` needs the
-    chunk as well as the clamped result: it records "a full chunk" as an intent
-    in its own right, and a backend that means to probe a whole vector must not
-    be pinned to whatever integer that chunk happens to be today.
+    Kept apart from the clamp above so that the two failure modes read
+    differently: an argument this cannot resolve is an unreadable declaration,
+    while a resolved pair that clamps is a backend shipping less than it asks
+    for. Both reach the same caller, and only the clamped result is what the
+    sweep matrix has to restate.
     """
     # Everything below reads `code`, never `source`: a commented-out declaration
     # is not a declaration, and a commented-out `const CHUNK` is not a chunk.
-    code = strip_comments(source, blank_strings=True)
+    code = strip_comments(source)
 
     # Counted by name and read by shape, in that order. A declaration the parser
     # cannot read must not lower this count: were it to, the file would look like
@@ -297,7 +281,7 @@ def probe_parts(source: str, relative: str, fail: Fail = die) -> tuple[int, int]
     # stale comment, before they were stripped -- would answer for it.
     declarations = DECLARATION_RE.findall(code)
     if len(declarations) != 1:
-        fail(
+        die(
             f"`{relative}` has {len(declarations)} `const CLASS_PROBE` "
             "declarations outside comments, not 1. With none, the backend "
             "stopped declaring its probe where this script reads it and the "
@@ -314,7 +298,7 @@ def probe_parts(source: str, relative: str, fail: Fail = die) -> tuple[int, int]
         # reader what was rejected.
         start = declared.start()
         text = statement.group(0) if statement else code[start : start + 160]
-        fail(
+        die(
             f"cannot read `{relative}`'s `CLASS_PROBE` declaration:\n\n    "
             + " ".join(text.split())
             + "\n\nIt must read `const CLASS_PROBE: usize = "
@@ -337,7 +321,7 @@ def probe_parts(source: str, relative: str, fail: Fail = die) -> tuple[int, int]
         ("chunk", chunk_arg, chunk),
     ):
         if value is None:
-            fail(
+            die(
                 f"cannot resolve the {label} argument `{arg}` of "
                 f"`class_probe` in `{relative}` to an integer. It is neither a "
                 "literal nor a uniquely-defined `const ...: usize = N;` in that "
@@ -593,7 +577,8 @@ def check(repo_root: str) -> list[str]:
             + ", ".join(f"`{t}`" for t in sorted(TIMING_TIERS))
             + " and the report must cover exactly those. A tier dropped from it "
             "is a tier whose shipped width goes unreported; the width itself is "
-            "gated by `ci/check_probe_width.py`, which needs no runner."
+            "pinned by a compile-time assertion in that backend, which needs no "
+            "runner at all."
         )
 
     declared = declared_disable_cfgs(repo_root)

@@ -24,7 +24,22 @@ const CHUNK: usize = 16;
 /// that runs it. `.github/workflows/probe-sweep.yml` produces those numbers.
 const CLASS_PROBE: usize = super::class_probe(CHUNK, CHUNK);
 
+// The safety bound holds in every build, sweep legs included: the kernels slice
+// `&input[..CLASS_PROBE]` behind a `len >= CHUNK` guard. The second assertion
+// pins the *abstention* -- no workflow times wasm, so this backend probes a
+// whole chunk, and it is written `CHUNK` rather than `16` so that adopting a
+// narrower probe here is an edit a reviewer sees rather than one integer
+// becoming another. A sweep leg deliberately changes the width; see
+// `super::CLASS_PROBE_OVERRIDE`.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == CHUNK,
+  "wasm simd128 probes a whole chunk because no workflow times wasm. \
+   Narrowing it means claiming a measurement this crate does not have, so it \
+   fails here until this line says otherwise -- time it under wasmtime first, \
+   the way `test-wasm-simd128` in `.github/workflows/ci.yml` runs the tests."
+);
 
 /// Tests whether each byte of `chunk` lies in `[lo, hi]` (2 ops, like NEON).
 ///

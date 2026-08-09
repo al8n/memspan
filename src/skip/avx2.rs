@@ -49,7 +49,19 @@ const CHUNK: usize = 32;
 /// fourteen of fifteen of them.
 const CLASS_PROBE: usize = super::class_probe(8, CHUNK);
 
+// The safety bound holds in every build, sweep legs included: the kernels slice
+// `&input[..CLASS_PROBE]` behind a `len >= CHUNK` guard. The shipped width is a
+// separate claim and a sweep leg deliberately changes it; see
+// `super::CLASS_PROBE_OVERRIDE`.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8,
+  "AVX2 ships an 8-byte ASCII-class probe. Widening it reverts a measured \
+   narrowing that no test in this crate can fail on, so it fails here instead. \
+   The sweep table that chose 8 is in `CLASS_PROBE`'s doc comment above; moving \
+   this number means editing that comment in the same commit."
+);
 
 #[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]

@@ -187,6 +187,57 @@ pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
 
 // ── probe width ──────────────────────────────────────────────────────────────
 
+/// The width `--cfg memspan_class_probe="N"` asks every backend to probe, or
+/// `0` when the cfg is unset — which is every build except a sweep leg.
+///
+/// # Why this is a constant rather than five `cfg` arms per backend
+///
+/// It has two readers. [`class_probe`] uses it to select the width, and each
+/// backend uses it to gate the compile-time assertion that pins the width it
+/// ships:
+///
+/// ```ignore
+/// const _: () = assert!(super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8);
+/// ```
+///
+/// That assertion is the whole check on the shipped width. `CLASS_PROBE` is the
+/// output of a `const fn` over a `cfg`-selected constant, a chunk width and a
+/// default, so what a backend *ships* is a property of that whole computation
+/// rather than of the literal in its declaration — and rustc is the only reader
+/// that evaluates all of it. A script that reads the source instead has to
+/// re-implement the clamp below and assume the cfg is unset, so a change to
+/// either one diverges from its model in silence.
+///
+/// The gate has to be *the value the override actually takes*, not
+/// `#[cfg(not(memspan_class_probe))]`: a bare name predicate matches only a
+/// valueless cfg, so it stays false under `--cfg memspan_class_probe="8"` and
+/// the assertion would fire on every sweep build. Enumerating the five valued
+/// arms per backend would work, but it restates the set below twenty-five times
+/// and each copy can drift from it. Reading the selected value is exact by
+/// construction: the assertion is skipped in precisely the builds where the
+/// override moved the width, because it is the same constant that moved it.
+///
+/// # What it does not cover
+///
+/// An ambient `RUSTFLAGS` that sets this cfg skips the assertions *and* changes
+/// the width, so the assertions cannot see it. `ci/check_probe_override.py`
+/// covers that by observing the flags of a real build; see its header for the
+/// residual.
+#[cfg(any(
+  target_arch = "aarch64",
+  target_arch = "x86",
+  target_arch = "x86_64",
+  all(target_arch = "wasm32", target_feature = "simd128"),
+))]
+pub(crate) const CLASS_PROBE_OVERRIDE: usize = cfg_select! {
+  memspan_class_probe = "4" => 4usize,
+  memspan_class_probe = "8" => 8usize,
+  memspan_class_probe = "16" => 16usize,
+  memspan_class_probe = "32" => 32usize,
+  memspan_class_probe = "64" => 64usize,
+  _ => 0usize,
+};
+
 /// Selects the scalar-probe width for a SIMD backend's ASCII-class kernels.
 ///
 /// `default` is the width the backend ships with. `chunk` is its vector width,
@@ -194,11 +245,11 @@ pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
 /// before slicing `&input[..probe]`, so a probe wider than a chunk could index
 /// past the end.
 ///
-/// `--cfg memspan_class_probe="N"` overrides the default. It exists so the
-/// probe-sweep workflow can produce a comparison table for the backends this
-/// host cannot time, and it is a **measurement hook, not a tuning API**: with
-/// the cfg unset every backend keeps the width it ships with, and the generated
-/// code is unchanged.
+/// [`CLASS_PROBE_OVERRIDE`] overrides the default. It exists so the probe-sweep
+/// workflow can produce a comparison table for the backends this host cannot
+/// time, and it is a **measurement hook, not a tuning API**: with the cfg unset
+/// every backend keeps the width it ships with, and the generated code is
+/// unchanged.
 ///
 /// # Why this is arch-gated
 ///
@@ -218,16 +269,36 @@ pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
 ))]
 #[cfg_attr(not(tarpaulin), inline(always))]
 pub(crate) const fn class_probe(default: usize, chunk: usize) -> usize {
-  let requested = cfg_select! {
-    memspan_class_probe = "4" => 4usize,
-    memspan_class_probe = "8" => 8usize,
-    memspan_class_probe = "16" => 16usize,
-    memspan_class_probe = "32" => 32usize,
-    memspan_class_probe = "64" => 64usize,
-    _ => 0usize,
-  };
+  // `0` has to keep meaning "no override", because that is what tells this
+  // function to use `default` *and* what tells every backend its shipped-width
+  // assertion applies. Editing the `_` arm above to `_ => 32usize` gets both
+  // wrong at once and nothing else catches it: every backend silently probes
+  // 32, and every backend's assertion sees a non-zero override and stands down.
+  //
+  // This is the crate's only `cfg` predicate on the override's *values*, and it
+  // is directly under the arms it mirrors. Adding an arm there without adding
+  // it here fails a sweep build at that value rather than passing quietly, so
+  // the drift that this restatement admits is the loud direction. Living inside
+  // the function body also means it inherits the arch gate above instead of
+  // carrying a third copy of it.
+  #[cfg(not(any(
+    memspan_class_probe = "4",
+    memspan_class_probe = "8",
+    memspan_class_probe = "16",
+    memspan_class_probe = "32",
+    memspan_class_probe = "64",
+  )))]
+  const _: () = assert!(
+    CLASS_PROBE_OVERRIDE == 0,
+    "with `memspan_class_probe` unset the override must be 0, or every \
+     backend's shipped-width assertion silently disables itself"
+  );
 
-  let probe = if requested == 0 { default } else { requested };
+  let probe = if CLASS_PROBE_OVERRIDE == 0 {
+    default
+  } else {
+    CLASS_PROBE_OVERRIDE
+  };
 
   // Clamp rather than reject, so one sweep value can be handed to every
   // backend at once: `64` means "a whole chunk" on AVX-512 and stays 16 on

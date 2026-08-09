@@ -57,7 +57,21 @@ const CHUNK: usize = 16;
 /// caller, and its rows must not be summed.
 const CLASS_PROBE: usize = super::class_probe(8, CHUNK);
 
+// Two assertions with two lifetimes. The first is the safety bound and holds in
+// every build, sweep legs included: the kernels slice `&input[..CLASS_PROBE]`
+// behind a `len >= CHUNK` guard, so a probe wider than a chunk would index past
+// the end. The second pins the width this backend *ships*, which a sweep leg
+// deliberately changes -- see `super::CLASS_PROBE_OVERRIDE` for why that gate
+// reads the selected value rather than testing the cfg name.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8,
+  "SSE4.2 ships an 8-byte ASCII-class probe. Widening it reverts a measured \
+   narrowing that no test in this crate can fail on, so it fails here instead. \
+   The sweep table that chose 8 is in `CLASS_PROBE`'s doc comment above; moving \
+   this number means editing that comment in the same commit."
+);
 
 /// Tests whether each byte of `chunk` lies in `[lo, hi]` (inclusive, unsigned).
 ///
