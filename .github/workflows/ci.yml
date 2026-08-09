@@ -55,6 +55,140 @@ jobs:
     - name: Check formatting
       run: cargo fmt --all -- --check
 
+  # The probe-sweep matrix restates the shipped `CLASS_PROBE` of each x86
+  # backend, and `class-perf-bar` below restates that workflow's dispatcher
+  # isolation flags. Neither restatement was enforced by anything, and one of
+  # them had already gone stale: the matrix carried `default_probe: 16/32`
+  # after the constants moved to `8`, which would have made every future sweep
+  # report gains against a width the crate no longer ships, in a table that
+  # looks exactly like a correct one.
+  #
+  # Cheap enough to gate on: python only, no toolchain, a few seconds.
+  probe-matrix:
+    name: probe-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ensure PyYAML
+        shell: bash
+        run: python3 -c 'import yaml' || python3 -m pip install --break-system-packages --quiet pyyaml
+      - name: Prove the check bites
+        run: python3 ci/check_probe_matrix.py --selftest
+      - name: Check the matrix against the shipped constants
+        run: python3 ci/check_probe_matrix.py
+
+  # The one perf claim in this crate that has an absolute answer, gated.
+  #
+  # `skip_ident` and `skip_ident_start` were both slower through the SIMD
+  # scanner than through the plain scalar `position` loop it replaces, on both
+  # x86 tiers, and narrowing `CLASS_PROBE` to 8 is what fixed it. No test in
+  # this repository could fail if that were reverted — the differential suite
+  # is a correctness oracle and passes at every width by design — so the fix
+  # was protected by nothing but the commit message until this job existed.
+  #
+  # This is not the probe sweep. The sweep compares several widths, takes tens
+  # of minutes, and cannot be attached to a push without becoming a check
+  # people route around; see `.github/workflows/probe-sweep.yml`. This job
+  # measures **only the shipped width** and asks whether it beats the code it
+  # replaced, which needs one build per tier and two short rounds. Both series
+  # are timed in the same process on the same corpus, so the ratio carries no
+  # dependence on runner speed or on a stored baseline.
+  #
+  # Why the bar is 1.25 and not 1.00, and which cells actually detect a
+  # revert, are recorded in `ci/class_perf_bar.py`. In short: SSE4.2
+  # `skip_ident` legitimately measures 1.18 at the shipped width, so 1.00 would
+  # fail correct code.
+  class-perf-bar:
+    name: class-perf-bar-${{ matrix.tier }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `isolate` pins the dispatcher, which takes the highest available
+          # tier, so isolating one means disabling exactly the tiers above it.
+          # `ci/check_probe_matrix.py` derives that set from the tier order and
+          # fails on any difference, here and in `probe-sweep.yml`.
+          #
+          # Nothing else would. Under-pinning is silent and total — an SSE4.2
+          # leg that forgot `memspan_disable_avx2` would time the AVX2 kernel
+          # and publish it as SSE4.2 — and a *misspelt* flag is worse, because
+          # a `--cfg` name is defined by being passed. `check-cfg` lints the
+          # cfg names written in the source, not the ones handed to rustc:
+          # `--cfg memspan_disable_avx22` was tried under `-Dwarnings` and
+          # compiled clean.
+          - tier: sse42
+            cpu_flag: sse4_2
+            isolate: --cfg memspan_disable_avx512 --cfg memspan_disable_avx2
+          - tier: avx2
+            cpu_flag: avx2
+            isolate: --cfg memspan_disable_avx512
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache cargo build and registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target-bar
+          key: ${{ runner.os }}-perf-bar-${{ matrix.tier }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-perf-bar-${{ matrix.tier }}-
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+
+      # Run before anything is measured, so a bar that cannot fail is caught
+      # even on a run where the measurement never happens.
+      - name: Prove the bar bites
+        run: python3 ci/class_perf_bar.py --selftest
+
+      # Not a skip. This job pins `runs-on: ubuntu-latest` precisely to get
+      # this hardware, so its absence is a broken runner and not an excused
+      # leg — and a perf gate that quietly stands down when it cannot measure
+      # is the failure this repository already had once, in probe-sweep.yml.
+      - name: Require the hardware this bar is calibrated on
+        shell: bash
+        run: |
+          if ! grep -qw "${{ matrix.cpu_flag }}" /proc/cpuinfo; then
+            echo "::error::this runner reports no ${{ matrix.cpu_flag }}, so the ${{ matrix.tier }} bar cannot be applied"
+            grep -m1 'model name' /proc/cpuinfo || true
+            exit 1
+          fi
+          echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)"
+
+      # Two rounds, so a single noisy one cannot fail a clean tree: the bar is
+      # applied to the best of them. `RUSTFLAGS` deliberately omits the
+      # workflow-level `-Dwarnings` — the isolating cfgs make some backends
+      # dead code, and this job's business is timing, not lint coverage, which
+      # `clippy --all-targets` already has.
+      - name: Time the shipped width against the scalar loop
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target-bar
+          CRITERION_HOME: ${{ github.workspace }}/criterion-bar
+          RUSTFLAGS: ${{ matrix.isolate }}
+        run: |
+          for round in 1 2; do
+            echo "::group::round $round"
+            cargo bench --bench short_run -- \
+              --warm-up-time 1 --measurement-time 2 --sample-size 100 \
+              --save-baseline "bar_r${round}" \
+              '^lexer_sweep/skip_ident(_start)?/(memspan|scalar)/'
+            echo "::endgroup::"
+          done
+
+      - name: Apply the bar
+        shell: bash
+        run: |
+          python3 ci/class_perf_bar.py \
+            --criterion-home "${{ github.workspace }}/criterion-bar" \
+            --tier "${{ matrix.tier }}" \
+            --baselines bar_r1,bar_r2 \
+            --classes skip_ident,skip_ident_start \
+            --max-ratio 1.25 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Apply clippy lints
   clippy:
     name: clippy

@@ -27,6 +27,13 @@ Three properties this deliberately keeps:
 Nothing here judges a *regression*: a sweep has no before/after, only a set of
 widths, so any pass/fail threshold on the timings themselves would be invented
 rather than measured. The failures above are all structural.
+
+That is a statement about this script and not about the crate. The width the
+crate *ships* is judged, on every pull request, by `ci/class_perf_bar.py`,
+which asks a question a sweep cannot: at one width, is the scanner slower than
+the plain scalar loop it replaced? That has a before — the code the SIMD path
+displaced, timed in the same process — so it grounds a bar without inventing
+one.
 """
 
 from __future__ import annotations
@@ -154,10 +161,13 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 # reported as measurements and left to the reader, for three reasons that were
 # checked rather than assumed:
 #
-# 1. Nothing consumes a verdict. The only machine reading this script is the
-#    workflow step that runs it, the workflow is dispatch-and-schedule only, and
-#    no merge or downstream job gates on it. Every consumer of the numbers is a
-#    person deciding whether to tune a constant.
+# 1. Nothing consumes a verdict *from here*. The only machine reading this
+#    script is the workflow step that runs it, that workflow is
+#    dispatch-and-schedule only, and no merge or downstream job gates on its
+#    table. Every consumer of these numbers is a person deciding whether to tune
+#    a constant. The pull-request gate on the shipped width reads its own
+#    measurement through `ci/class_perf_bar.py` and does not parse this output,
+#    so widening the reporter's remit would buy that gate nothing.
 # 2. Criterion's own confidence interval cannot ground a threshold here. On the
 #    reference run, between-round drift exceeded the within-run CI half-width in
 #    10 of 15 benchmarks, by up to 23.4x, so a bar built on those intervals would

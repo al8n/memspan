@@ -45,6 +45,42 @@ PERFORMANCE
      remains the hook for measuring them on a host that can.
    - No API change. Every width was held against the independent scalar oracle in
      `tests/short_run_differential.rs`, which the sweep runs per-width on real x86 hardware.
+   - **Guarded from now on by CI rather than by the commit message.** No test in this
+     repository can fail if this constant is widened again — the differential suite is a
+     correctness oracle and passes at every width by design — so the two classes are held
+     by `class-perf-bar` in `.github/workflows/ci.yml`, which times the shipped width on
+     both x86 tiers of every pull request and fails when `skip_ident` or
+     `skip_ident_start` exceeds 1.25x the scalar loop. The bar is 1.25 and not 1.00
+     because SSE4.2 `skip_ident` legitimately measures 1.18; `ci/class_perf_bar.py`
+     records which cells detect a revert and which do not.
+
+INTERNAL
+
+1. Make the probe-sweep workflow's claims enforceable
+   - `.github/workflows/probe-sweep.yml` said it "does not gate anything" and nothing
+     else did either. It still does not gate a *timing* — a sweep has no before or after
+     — but the shipped width now is gated, by the pull-request job above, and the
+     workflow says where instead of leaving the reader to infer that nothing does.
+   - **A leg that measures nothing no longer reports success.** When the CPU flag was
+     missing, every step of that tier — build, differential, sweep, render and upload —
+     was skipped by one shared `available == 'true'` condition and the leg exited green.
+     For the life of the workflow a green tick had been reporting absence as success,
+     which is why no AVX-512 data has ever existed. SSE4.2 and AVX2 now carry
+     `required_measurement: true` and fail if they render no table; AVX-512 is the one
+     optional leg, says so in its job name, and is excluded from the new
+     `require-measurements` job that holds the run's artifacts against the tiers the
+     matrix says must produce one.
+   - **`default_probe` is checked against the source.** The matrix hard-coded the width
+     each backend ships, and `ci/probe_sweep.py` uses that number three ways at once —
+     the "(shipped)" label, the gain baseline and the reach threshold — so drift
+     publishes a table wrong in three places that looks entirely convincing. It had
+     already drifted once. `ci/check_probe_matrix.py` now parses `class_probe(...)` out
+     of each `src/skip/<tier>.rs`, applies the same clamp the function applies, and
+     fails on any disagreement; it also holds the sweep's dispatcher-isolation flags
+     against the perf bar's, and is the single source for which tiers must measure.
+   - Render the sweep table under `shell: bash`. Without `pipefail`, `probe_sweep.py |
+     tee` took `tee`'s exit code, so every structural refusal that reporter makes was
+     unreachable — a refusal was written into the summary and the step passed.
 
 # 0.1.1 (August 9th, 2026)
 
