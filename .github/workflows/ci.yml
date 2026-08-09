@@ -63,19 +63,27 @@ jobs:
   # report gains against a width the crate no longer ships, in a table that
   # looks exactly like a correct one.
   #
+  # The same job also drives the sweep's two measurement assertions, which no
+  # ordinary run can exercise: every hosted x86 runner has SSE4.2 and AVX2, so
+  # their failing branch never executes, and none has AVX-512, so that leg's
+  # passing branch never executes either. A green sweep is no evidence that
+  # either assertion would fail when it should.
+  #
   # Cheap enough to gate on: python only, no toolchain, a few seconds.
-  probe-matrix:
-    name: probe-matrix
+  sweep-guards:
+    name: sweep-guards
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Ensure PyYAML
         shell: bash
         run: python3 -c 'import yaml' || python3 -m pip install --break-system-packages --quiet pyyaml
-      - name: Prove the check bites
+      - name: Prove the matrix check bites
         run: python3 ci/check_probe_matrix.py --selftest
       - name: Check the matrix against the shipped constants
         run: python3 ci/check_probe_matrix.py
+      - name: Drive the sweep's measurement assertions through every state
+        run: python3 ci/check_sweep_assertions.py
 
   # The one perf claim in this crate that has an absolute answer, gated.
   #

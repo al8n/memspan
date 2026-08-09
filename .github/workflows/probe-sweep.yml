@@ -189,6 +189,12 @@ jobs:
       - name: Check the matrix against the shipped constants
         run: python3 ci/check_probe_matrix.py
 
+      # This run cannot exercise either of its own measurement assertions --
+      # the hardware decides which branch executes, and a hosted runner only
+      # ever takes the ones that pass. Drive both here instead.
+      - name: Drive this job's measurement assertions through every state
+        run: python3 ci/check_sweep_assertions.py
+
       # The reporter decides what gets published, so it is checked before it is
       # trusted. Its fixtures compare against literal expected rows written by
       # hand, never against output the reporter produced.
