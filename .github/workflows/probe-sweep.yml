@@ -39,13 +39,15 @@ name: probe-sweep
 # the raw criterion estimates, marks no winner, applies no threshold, and
 # leaves the choice of width to whoever reads it.
 #
-# **Whether the shipped probe is still narrow is checked, on every pull
-# request, by the `probe-width` job in `.github/workflows/ci.yml`.** It reads
-# the constants: `CLASS_PROBE` is a compile-time constant per backend, so a
-# revert is a source-level fact, and `ci/check_probe_width.py` holds each
-# backend's declaration against the width this crate intends. No hardware, no
-# runner and no threshold enter into it — including for NEON and wasm
-# `simd128`, which no timing job here or in `ci.yml` can reach.
+# **Whether the shipped probe is still narrow is decided by the compiler, on
+# every build.** `CLASS_PROBE` is a compile-time constant per backend, and each
+# backend asserts its own value beside the declaration, so widening one is a
+# failed build rather than a red script. No hardware, no runner and no threshold
+# enter into it — including for NEON and wasm `simd128`, which no timing job
+# here or in `ci.yml` can reach, but which `cross` and `test-wasm-simd128`
+# compile. Those assertions are gated on the override below being unset, since a
+# different width is the whole point of a sweep leg; the `probe-override` job in
+# `.github/workflows/ci.yml` is what keeps an ordinary build from setting it.
 #
 # The `probe-timing` job in `ci.yml` still times the shipped width on both x86
 # tiers of every pull request, and **reports rather than decides**: it prints
@@ -62,8 +64,10 @@ name: probe-sweep
 # nothing about it.
 #
 # **A red check does not stop a merge.** This repository has no branch
-# protection rule and no ruleset, so a failing `probe-width` is visible on the
-# pull request and a maintainer can still merge or push directly past it.
+# protection rule and no ruleset, so a failing `probe-override` is visible on
+# the pull request and a maintainer can still merge or push directly past it. A
+# widened probe is not in that category: it fails a build rather than a check,
+# and there is no green tick to merge past.
 #
 # **Nothing at all covers AVX-512 or wasm `simd128`, and that is a statement
 # rather than an omission.** No hosted runner has AVX-512, no workflow times

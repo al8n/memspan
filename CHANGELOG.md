@@ -45,19 +45,33 @@ PERFORMANCE
      remains the hook for measuring them on a host that can.
    - No API change. Every width was held against the independent scalar oracle in
      `tests/short_run_differential.rs`, which the sweep runs per-width on real x86 hardware.
-   - **A revert is detected by CI rather than by the commit message.** No test in this
-     repository can fail if this constant is widened again — the differential suite is a
-     correctness oracle and passes at every width by design. `CLASS_PROBE` is a
-     compile-time constant per backend, so the `probe-width` job in
-     `.github/workflows/ci.yml` decides this from the source:
-     `ci/check_probe_width.py` holds every `src/skip/<backend>.rs` against the width this
-     crate intends, covers NEON and wasm `simd128` as well as the x86 tiers, and refuses a
-     `build.rs` or `.cargo/config.toml` that so much as names `memspan_class_probe`
-     outside a comment — a blanket rule, because this build script prints its cfgs through
-     a `use_feature(feature)` helper, so the line carrying `rustc-cfg` carries no cfg name
-     and a rule wanting both on one line would have let the override through. No hardware,
-     no runner and no threshold are involved, so nothing about the verdict moves with the
-     machine GitHub allocated.
+   - **A revert fails the build, not a script.** No test in this repository can fail if
+     this constant is widened again — the differential suite is a correctness oracle and
+     passes at every width by design — so each backend asserts the width it ships, beside
+     the declaration, and rustc evaluates it:
+
+     ```rust
+     const _: () = assert!(super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8);
+     ```
+
+     That covers NEON and wasm `simd128` as well as the three x86 tiers, on every build
+     that compiles the module rather than only when a workflow runs a script, and it holds
+     the *whole* computation — the cfg-selected override, `class_probe`'s clamp, the chunk
+     width and the default argument — rather than a literal in one declaration. The two
+     backends that abstain assert `CLASS_PROBE == CHUNK`, so adopting an unmeasured
+     narrowing there fails until that line says otherwise. No hardware, no runner and no
+     threshold are involved.
+   - **What the assertions cannot see, `ci/check_probe_override.py` observes.** They stand
+     down when `--cfg memspan_class_probe="N"` is set, because a sweep leg sets it on
+     purpose — so an ambient override would move the width and disable the assertion that
+     would have noticed, in one stroke. The `probe-override` job runs a build and reads the
+     `--cfg` arguments rustc was actually handed, which catches that cfg whether it came
+     from `RUSTFLAGS`, `.cargo/config.toml` or a `cargo:rustc-cfg` line in `build.rs`,
+     without enumerating any of them; both of the last two were measured arriving that way
+     before the check was written. It refuses a verdict from a build that compiled nothing,
+     and it parses the invocation's arguments rather than searching its text, because every
+     clean build already carries the cfg name inside the `--check-cfg` declaration
+     `Cargo.toml` makes.
    - **The timing is evidence, not the gate.** `probe-timing` in the same workflow still
      times the shipped width on both x86 tiers of every pull request, prints each round,
      the median and a reference line derived from the sweep's own shipped and chunk-width
@@ -104,8 +118,9 @@ INTERNAL
      name rather than by shape, so a declaration written as something it cannot parse is
      reported as unreadable instead of being counted as absent and stood in for. It also
      holds the sweep's dispatcher-isolation flags against `probe-timing`'s, and is the
-     single source for which tiers must measure. `ci/check_probe_width.py` imports that
-     same `class_probe(...)` parser rather than growing a second one.
+     single source for which tiers must measure. This is the one question the compiler
+     cannot answer — whether a *workflow* still restates the shipped width correctly — so
+     the parser survives here and nowhere else.
    - Render the sweep table under `shell: bash`. Without `pipefail`, `probe_sweep.py |
      tee` took `tee`'s exit code, so every structural refusal that reporter makes was
      unreachable — a refusal was written into the summary and the step passed.

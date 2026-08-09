@@ -6,11 +6,12 @@ Run from `.github/workflows/ci.yml`'s `probe-timing` job on every pull request;
 
 # This reports. It does not decide.
 
-**Whether the `CLASS_PROBE` narrowing has been reverted is decided by
-`ci/check_probe_width.py`, from the source, and by nothing here.** That is a
-compile-time constant; whether it is still 8 is a property a reader -- or a
-parser -- can settle exactly, without a CPU. This job exists for the question
-source cannot answer: what the shipped width actually costs, on hardware.
+**Whether the `CLASS_PROBE` narrowing has been reverted is decided by rustc, in
+each backend, and by nothing here.** That is a compile-time constant, and each
+backend asserts its own value next to the declaration, so a revert fails the
+build of every job that compiles that backend -- no CPU, runner or timing
+involved. This job exists for the question a constant cannot answer: what the
+shipped width actually costs, on hardware.
 
 So a ratio outside its reference line below is printed, annotated as a warning,
 and **does not fail this job**. Earlier versions failed on it, and the reason
@@ -347,7 +348,7 @@ def main() -> int:
     )
     print(
         "**This is evidence, not a verdict.** Whether the probe is still narrow "
-        "is decided from the source by `ci/check_probe_width.py`; a row over its "
+        "is decided by a compile-time assertion in each backend; a row over its "
         "reference line here is annotated and does not fail this job. Two of the "
         "four monitored cells sit legitimately above 1.00, so no line is at "
         "parity and none answers a parity question.\n"
@@ -381,9 +382,10 @@ def main() -> int:
         print(f"\n::warning::on `{args.tier}` ({args.host}), {detail}")
         print(
             f"\n**Over the reference line: {detail}.**\n\n"
-            "This is worth reading and is not a verdict. If `probe-width` is "
-            "green then `CLASS_PROBE` is unchanged and this is not a reverted "
-            "probe -- the remaining explanations are a different host from the "
+            "This is worth reading and is not a verdict. This job built the "
+            "crate, so `CLASS_PROBE` is whatever its backend asserts and this "
+            "is not a reverted probe -- the remaining explanations are a "
+            "different host from the "
             "AMD EPYC 7763 these lines were placed on, a change elsewhere in the "
             "kernel, or a change in the bench corpus. `runs-on: ubuntu-latest` "
             "selects a generic hosted x64 VM and pins no CPU model, and a model "
