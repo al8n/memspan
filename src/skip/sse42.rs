@@ -22,6 +22,17 @@ use crate::Needles;
 
 const CHUNK: usize = 16;
 
+/// Bytes classified scalar before the vector loop, defaulting to one chunk.
+///
+/// See [`crate::skip::class_probe`]. The NEON kernels ship a probe narrower
+/// than their chunk because a measured sweep on aarch64 showed the wider one
+/// costing a three-term predicate 1.9x a plain scalar loop; this backend keeps
+/// its chunk-width probe because nobody has timed the alternative on hardware
+/// that runs it. `.github/workflows/probe-sweep.yml` produces those numbers.
+const CLASS_PROBE: usize = super::class_probe(CHUNK, CHUNK);
+
+const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
 /// Tests whether each byte of `chunk` lies in `[lo, hi]` (inclusive, unsigned).
 ///
 /// Algorithm (3 ops vs NEON's 2):
@@ -160,12 +171,16 @@ macro_rules! skip_ascii_class {
 
       let ptr = input.as_ptr();
 
-      let first = super::$prefix_len(&input[..CHUNK]);
-      if first != CHUNK {
+      let first = super::$prefix_len(&input[..CLASS_PROBE]);
+      if first != CLASS_PROBE {
         return first;
       }
 
-      let mut cur = CHUNK;
+      // A probe narrower than a chunk cannot be credited against the vector
+      // loop's grid, so the loop restarts at zero and re-reads the probed
+      // bytes. With the shipped chunk-width probe this folds to `CHUNK` and
+      // the generated code is unchanged.
+      let mut cur = if CLASS_PROBE == CHUNK { CHUNK } else { 0 };
 
       // 2× unrolled: AND both match masks; all-ones ⟹ both chunks clean.
       while cur + 2 * CHUNK <= len {

@@ -102,7 +102,7 @@ where
 /// raw throughput of a single `skip_until` call across a range of sizes that
 /// straddle the SIMD dispatch threshold.
 fn bench_micro_end_match(c: &mut Criterion) {
-  const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+  const NEEDLES: [u8; 5] = *b" \t\r\n,";
 
   let mut group = c.benchmark_group("skip_until/micro/end_match");
 
@@ -144,7 +144,7 @@ fn bench_micro_end_match(c: &mut Criterion) {
 /// needle hits. This isolates the variable that flips the SIMD-vs-scalar
 /// verdict and exposes where the crossover lives.
 fn bench_density_sweep(c: &mut Criterion) {
-  const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+  const NEEDLES: [u8; 5] = *b" \t\r\n,";
   const LEN: usize = 64 * 1024;
 
   let mut group = c.benchmark_group("skip_until/density_sweep");
@@ -184,7 +184,7 @@ fn bench_density_sweep(c: &mut Criterion) {
 }
 
 fn bench_graphql_ignored_workload(c: &mut Criterion) {
-  const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+  const NEEDLES: [u8; 5] = *b" \t\r\n,";
   const FRAGMENT: &[u8] = br#"
 query GetUser($id: ID!, $limit: Int = 10) {
   user(id: $id) {
@@ -258,7 +258,7 @@ fragment UserFields on User {
 }
 
 fn bench_quote_or_escape_workload(c: &mut Criterion) {
-  const NEEDLES: [u8; 2] = [b'"', b'\\'];
+  const NEEDLES: [u8; 2] = *b"\"\\";
   const FRAGMENT: &[u8] =
     br#"name: "Ada Lovelace", bio: "first programmer \"notes\" \\ archive", city: "London"
 "#;

@@ -226,9 +226,20 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Install Intel SDE
-        uses: petarpetrovt/setup-sde@v5.0
+        # Kept in step with the identical block in `ci.yml`. No `sdeVersion:`
+        # on purpose — take the action's default.
+        #
+        # This job was green until 2026-07-14, when dependabot bumped the
+        # action 4.0 -> 5.0 (#6). v4.0 accepted `9.33.0`; v5.0 dropped it,
+        # accepting only 10.8.0 and 9.58.0, so the pinned input became invalid
+        # and every run since has failed with
+        # `SDE version '9.33.0' is not supported in this context.`
+        #
+        # `ci.yml` was fixed first and this copy was missed, so the coverage
+        # leg stayed red after the CI leg went green. Two workflows install SDE;
+        # a change to either belongs in both.
+        uses: petarpetrovt/setup-sde@v6.0
         with:
-          sdeVersion: 9.33.0
           environmentVariableName: SDE_PATH
 
       - name: Generate coverage under SDE (-icx, Ice Lake AVX-512)

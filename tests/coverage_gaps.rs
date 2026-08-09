@@ -304,7 +304,7 @@ fn slice_n5_count_and_find_last_long() {
 
 #[test]
 fn fixed_array_n2_long() {
-  let n = [b'X', b'Y'];
+  let n = *b"XY";
   for &len in LONG_LENS {
     let mut input = vec![b'a'; len];
     input[len - 1] = b'Y';
@@ -326,7 +326,7 @@ fn fixed_array_n2_long() {
 
 #[test]
 fn fixed_array_n5_long() {
-  let n = [b'1', b'2', b'3', b'4', b'5'];
+  let n = *b"12345";
   for &len in LONG_LENS {
     let mut input = vec![b'a'; len];
     input[len - 1] = b'5';
@@ -421,7 +421,7 @@ fn ascii_classes_long_inputs() {
 #[test]
 fn skip_until_unrolled_loop_branches() {
   // 4-needle (covers the [a,b,c,d] arms broadly); 2 and 5 are covered above.
-  let n_arr = [b'!', b'@', b'#', b'$'];
+  let n_arr = *b"!@#$";
   let n_slice: &[u8] = b"!@#$";
   for &len in LONG_LENS {
     if len < 96 {
@@ -449,7 +449,7 @@ fn skip_until_unrolled_loop_branches() {
 
 #[test]
 fn skip_while_unrolled_loop_branches() {
-  let n_arr = [b' ', b'\t', b'\r', b'\n', b','];
+  let n_arr = *b" \t\r\n,";
   let n_slice: &[u8] = b" \t\r\n,";
   for &len in LONG_LENS {
     if len < 96 {
@@ -477,7 +477,7 @@ fn skip_while_unrolled_loop_branches() {
 
 #[test]
 fn count_and_find_last_unrolled_loop_long() {
-  let n_arr = [b'a', b'e', b'i', b'o', b'u'];
+  let n_arr = *b"aeiou";
   let n_slice: &[u8] = b"aeiou";
   for &len in LONG_LENS {
     if len < 96 {
@@ -583,7 +583,7 @@ fn dynamic_slice_long_inputs() {
 #[test]
 fn ref_delegation_long() {
   let n: &[u8] = b"abcde";
-  let rn: &&[u8] = &&n;
+  let rn: &&[u8] = &n;
   for &len in LONG_LENS {
     let input: Vec<u8> = (0..len).map(|i| n[i % n.len()]).collect();
     assert_eq!(skip::skip_while(input.as_slice(), rn), len, "len={len}");
@@ -617,7 +617,7 @@ fn is_empty_default_method() {
   }
 
   check(b'X', false);
-  check([b'a', b'b'], false);
+  check(*b"ab", false);
   check::<[u8; 0]>([], true);
   let empty_slice: &[u8] = &[];
   check(empty_slice, true);

@@ -90,7 +90,7 @@ where
 
 /// Per-call worst case: scan the whole buffer, single non-match at the end.
 fn bench_micro_full_match(c: &mut Criterion) {
-  const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+  const NEEDLES: [u8; 5] = *b" \t\r\n,";
 
   let mut group = c.benchmark_group("skip_while/micro/full_match");
 
@@ -131,7 +131,7 @@ fn bench_micro_full_match(c: &mut Criterion) {
 /// Density sweep: vary the length of contiguous matching runs between misses.
 /// Short runs stress per-call overhead; long runs stress SIMD throughput.
 fn bench_density_sweep(c: &mut Criterion) {
-  const NEEDLES: [u8; 5] = [b' ', b'\t', b'\r', b'\n', b','];
+  const NEEDLES: [u8; 5] = *b" \t\r\n,";
   const LEN: usize = 64 * 1024;
 
   let mut group = c.benchmark_group("skip_while/density_sweep");
@@ -173,7 +173,7 @@ fn bench_density_sweep(c: &mut Criterion) {
 /// Realistic JSON-ish workload: pretty-printed text with a mix of short and
 /// long whitespace runs.
 fn bench_pretty_json_workload(c: &mut Criterion) {
-  const NEEDLES: [u8; 4] = [b' ', b'\t', b'\r', b'\n'];
+  const NEEDLES: [u8; 4] = *b" \t\r\n";
   const FRAGMENT: &[u8] = br#"{
     "id": 42,
     "name": "Ada Lovelace",

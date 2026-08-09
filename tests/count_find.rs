@@ -18,7 +18,7 @@ fn scalar_find_last(input: &[u8], needles: &[u8]) -> Option<usize> {
 #[test]
 fn count_matches_empty_input() {
   assert_eq!(skip::count_matches(b"", b'a'), 0);
-  assert_eq!(skip::count_matches(b"", [b'a', b'b']), 0);
+  assert_eq!(skip::count_matches(b"", *b"ab"), 0);
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn count_matches_cross_check_scalar_multi_needle() {
 #[test]
 fn count_matches_duplicate_needles() {
   let input = b"aabbccaabb";
-  assert_eq!(skip::count_matches(input, [b'a', b'a']), 4);
+  assert_eq!(skip::count_matches(input, *b"aa"), 4);
   assert_eq!(skip::count_matches(input, b'a'), 4);
 }
 
@@ -122,7 +122,7 @@ fn count_matches_chunk_boundary_all_hits_last() {
 #[test]
 fn find_last_empty_input() {
   assert_eq!(skip::find_last(b"", b'a'), None);
-  assert_eq!(skip::find_last(b"", [b'a', b'b']), None);
+  assert_eq!(skip::find_last(b"", *b"ab"), None);
 }
 
 #[test]

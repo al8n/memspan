@@ -73,7 +73,13 @@ jobs:
     - name: Install cargo-hack
       run: cargo install cargo-hack
     - name: Apply clippy lints
-      run: cargo hack clippy --each-feature
+      # `--all-targets` is load-bearing. Without it the matrix lints the library
+      # only, so `tests/` and `benches/` go unlinted however many feature
+      # permutations run — which is how 32 diagnostics accumulated in them while
+      # this job stayed green. `-D warnings` is repeated at the call site rather
+      # than left to the workflow-level RUSTFLAGS so the gate's intent is legible
+      # where the gate is.
+      run: cargo hack clippy --each-feature --no-deps --all-targets -- -D warnings
 
   # Run tests on some extra platforms
   cross:
@@ -203,9 +209,22 @@ jobs:
       - name: Install Rust
         run: rustup update stable --no-self-update && rustup default stable
       - name: Install Intel SDE
-        uses: petarpetrovt/setup-sde@v5.0
+        # No `sdeVersion:` on purpose — take the action's default.
+        #
+        # This job was green until 2026-07-14, when dependabot bumped the
+        # action 4.0 -> 5.0 (#6). v4.0 accepted `9.33.0`; v5.0 dropped it,
+        # accepting only 10.8.0 and 9.58.0, so the pinned input became
+        # invalid and every run since has failed with
+        # `SDE version '9.33.0' is not supported in this context.`
+        # Dependabot bumps the dependency; it cannot know the configuration
+        # has to move with it.
+        #
+        # Pinning any version here is a time bomb for a second reason the
+        # action's own README gives: "Intel regularly removes older mirror
+        # links". The default tracks whatever that action release supports,
+        # so an action bump can no longer strand the input.
+        uses: petarpetrovt/setup-sde@v6.0
         with:
-          sdeVersion: 9.33.0
           environmentVariableName: SDE_PATH
       - name: Run tests under SDE (-icx, Ice Lake AVX-512)
         # The `petarpetrovt/setup-sde` action exports `SDE_PATH` but

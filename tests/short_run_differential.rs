@@ -186,8 +186,186 @@ const CLASSES: &[Class] = &[
 ];
 
 /// Longest length swept exhaustively. Covers the 8-byte probe, the 16/32/64
-/// byte chunks, their 2x-unrolled strides, and the neighbours of each.
-const MAX_LEN: usize = 96;
+/// byte chunks, their 2x-unrolled strides and the neighbours of each — 129
+/// reaches one past the AVX-512 2x stride at 128, which a shorter sweep never
+/// entered. Raising it from 96 costs nothing now the buffers are reused.
+const MAX_LEN: usize = 129;
+
+// ── volume under Miri ────────────────────────────────────────────────────────
+//
+// **The reduction below is about volume, not coverage, and the distinction is
+// the whole point.**
+//
+// The native run is the correctness sweep: it is what checks that each kernel
+// returns the same prefix length as the oracle for every input, and it stays
+// exhaustive because per-target arithmetic can differ anywhere.
+//
+// The Miri run is the UB sweep. It checks for out-of-bounds reads, misaligned
+// or over-long vector loads, and provenance violations, and every one of those
+// surfaces the *first* time a code path executes. Running the same shape a
+// hundred thousand more times tells Miri nothing further about UB, and on i686
+// — the only 32-bit target, so the only one with a 4 GiB simulated address
+// space — it exhausts the address space before finishing.
+//
+// So the schedule shrinks under `cfg(miri)`, and what it must not lose is the
+// set of *paths* it enters: the scalar probe, the vector loop, the 2x-unrolled
+// stride and each shape of tail, for every backend width the crate has. A
+// reduction whose longest run never reaches a vector width would leave Miri
+// examining the scalar path alone and the job would pass having checked
+// nothing — a gate that runs, passes, and is empty.
+//
+// `miri_schedule_reaches_every_path` asserts that, so the property is checked
+// rather than believed. Do not lower these numbers without re-running it, and
+// do not raise them back: the exhaustion they avoid is real.
+
+/// Lengths swept by the boundary tests.
+///
+/// Exhaustive natively. Under Miri, the boundaries themselves: every backend
+/// chunk (16/32/64) and the 8-byte NEON probe, each with its neighbours, plus
+/// the 2x-unrolled strides and one past them.
+const MIRI_LENGTHS: &[usize] = &[
+  0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 96, 128, 129,
+];
+
+fn sweep_lengths() -> Vec<usize> {
+  if cfg!(miri) {
+    MIRI_LENGTHS.to_vec()
+  } else {
+    (0..=MAX_LEN).collect()
+  }
+}
+
+/// Positions of the single non-member byte, for a given length.
+///
+/// Exhaustive natively. Under Miri, the ends, the middle, and each backend
+/// boundary that falls inside the slice — the offsets at which a kernel changes
+/// which branch of its tail arithmetic it takes.
+fn miri_miss_positions(len: usize) -> Vec<usize> {
+  let mut v: Vec<usize> = [0, 1, 7, 8, 15, 16, 31, 32, 63, 64, len / 2]
+    .into_iter()
+    .chain(len.checked_sub(1))
+    .filter(|&p| p < len)
+    .collect();
+  v.sort_unstable();
+  v.dedup();
+  v
+}
+
+fn miss_positions(len: usize) -> Vec<usize> {
+  if cfg!(miri) {
+    miri_miss_positions(len)
+  } else {
+    (0..len).collect()
+  }
+}
+
+/// Alignment offsets. Every sub-16 phase plus each chunk edge under Miri; a
+/// misaligned load is misaligned on its first execution, not its sixty-fifth.
+fn alignment_offsets() -> Vec<usize> {
+  if cfg!(miri) {
+    vec![0, 1, 2, 3, 7, 8, 15, 16, 17, 31, 32, 63, 64]
+  } else {
+    (0..=64usize).collect()
+  }
+}
+
+/// Lengths for the pseudo-random sweep. Under Miri the two that still cross a
+/// vector width; the longer two only repeat the same paths on more bytes.
+fn random_lengths() -> Vec<usize> {
+  if cfg!(miri) {
+    vec![129, 512]
+  } else {
+    vec![129, 512, 1024, 4096]
+  }
+}
+
+/// Rounds of the pseudo-random sweep. Each round is a fresh density, and the
+/// densities that matter for path coverage are "sparse" and "dense"; the rest
+/// re-walk the same branches.
+fn random_rounds() -> usize {
+  if cfg!(miri) { 2 } else { 24 }
+}
+
+/// Lengths for the fully-random sweep.
+fn random_byte_lengths() -> Vec<usize> {
+  if cfg!(miri) {
+    vec![0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 129, 200]
+  } else {
+    (0..=200usize).collect()
+  }
+}
+
+/// Lengths for the past-the-probe alphabet sweep.
+fn vector_lengths() -> Vec<usize> {
+  if cfg!(miri) {
+    vec![129]
+  } else {
+    VECTOR_LENGTHS.to_vec()
+  }
+}
+
+/// The reduced Miri schedule must still enter every path the kernels have.
+///
+/// Runs on every configuration so the native build catches a bad edit too, but
+/// it is the `cfg(miri)` schedule it is guarding. Each backend answers a run
+/// shorter than its probe from the scalar loop, enters its vector loop at the
+/// chunk, takes the 2x-unrolled stride at twice it, and reaches the overlap
+/// tail whenever the length is not an exact multiple.
+#[test]
+fn miri_schedule_reaches_every_path() {
+  // Checks `MIRI_LENGTHS` directly rather than whatever this build selected,
+  // so the native run guards the reduced schedule too. A schedule that is only
+  // validated under the configuration that uses it is validated by the run
+  // least able to afford failing.
+  let lengths = MIRI_LENGTHS;
+  let has = |n: usize| lengths.contains(&n);
+
+  // 8 is the NEON probe; 16, 32 and 64 are the SSE4.2/simd128, AVX2 and
+  // AVX-512 chunks. For each, the schedule needs a length below it (scalar
+  // answer), at it (vector loop entry) and past it (tail).
+  for width in [8usize, 16, 32, 64] {
+    assert!(
+      lengths.iter().any(|&l| l > 0 && l < width),
+      "no length below {width}: the scalar path before that width is unreached"
+    );
+    assert!(
+      has(width),
+      "no length exactly {width}: the vector loop at that width is unreached"
+    );
+    assert!(
+      lengths.iter().any(|&l| l > width),
+      "no length past {width}: the tail after that width is unreached"
+    );
+  }
+
+  // 2x-unrolled strides, and one past each, so the unrolled loop and the
+  // single-chunk loop after it are both entered.
+  for stride in [32usize, 64, 128] {
+    assert!(has(stride), "no length at the {stride}-byte 2x stride");
+    assert!(
+      lengths.iter().any(|&l| l > stride),
+      "no length past the {stride}-byte 2x stride, so its remainder is unreached"
+    );
+  }
+
+  // A length that is not a multiple of any chunk, so the overlap tail runs
+  // with a partial lane mask rather than falling out at `cur == len`.
+  assert!(
+    lengths
+      .iter()
+      .any(|&l| l > 64 && !l.is_multiple_of(64) && !l.is_multiple_of(32)),
+    "no non-multiple length past 64: the partial overlap tail is unreached"
+  );
+
+  // And the miss positions must still land on the boundaries inside a slice.
+  let positions = miri_miss_positions(129);
+  for boundary in [0usize, 8, 16, 32, 64] {
+    assert!(
+      positions.contains(&boundary),
+      "miss position {boundary} missing: that boundary's tail arithmetic is unreached"
+    );
+  }
+}
 
 // ── the sweeps ───────────────────────────────────────────────────────────────
 
@@ -203,22 +381,47 @@ fn every_short_length_and_miss_position_agrees_with_the_oracle() {
     miss,
   } in CLASSES
   {
-    for len in 0..=MAX_LEN {
-      let all_match = vec![fill; len];
+    // One buffer per class, mutated in place and sliced to the length under
+    // test. Allocating inside these loops instead cost 4753 allocations per
+    // class and 71295 across the fifteen, which exhausted Miri's simulated
+    // address space on i686 — the only 32-bit target, and so the only one where
+    // 4 GiB can run out. Miri does not aggressively reuse addresses, so the
+    // count is what matters rather than the size. Coverage is identical.
+    let mut buf = [fill; MAX_LEN];
+
+    for len in sweep_lengths() {
+      let all_match = &buf[..len];
+      // Both assertions matter, and the second is what makes the shared buffer
+      // safe. The differential one compares the scanner against the oracle on
+      // the *same* bytes, so a buffer left dirty by a previous iteration would
+      // change which input is tested without either side noticing — silent
+      // coverage loss rather than a failure. Restating the expected answer in
+      // terms of the loop variables pins the buffer's state as well.
       assert_eq!(
-        scanner(&all_match),
-        oracle(&all_match, member),
+        oracle(all_match, member),
+        len,
+        "{name}: buffer not all-member at len={len} — a previous iteration left it dirty"
+      );
+      assert_eq!(
+        scanner(all_match),
+        oracle(all_match, member),
         "{name}: run reaching the slice end, len={len}"
       );
 
-      for miss_pos in 0..len {
-        let mut input = vec![fill; len];
-        input[miss_pos] = miss;
+      for miss_pos in miss_positions(len) {
+        buf[miss_pos] = miss;
+        let input = &buf[..len];
         assert_eq!(
-          scanner(&input),
-          oracle(&input, member),
+          oracle(input, member),
+          miss_pos,
+          "{name}: expected exactly one miss at {miss_pos} in len={len}"
+        );
+        assert_eq!(
+          scanner(input),
+          oracle(input, member),
           "{name}: len={len}, miss_pos={miss_pos}"
         );
+        buf[miss_pos] = fill;
       }
     }
   }
@@ -238,7 +441,7 @@ fn every_alignment_agrees_with_the_oracle() {
   {
     let mut backing = [0u8; MAX_LEN + 65];
 
-    for offset in 0..=64usize {
+    for offset in alignment_offsets() {
       for len in [0usize, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 96] {
         for miss_pos in [None, Some(0), Some(len / 2), Some(len.saturating_sub(1))] {
           backing.fill(fill);
@@ -282,20 +485,25 @@ fn pseudorandom_long_inputs_agree_with_the_oracle() {
     miss,
   } in CLASSES
   {
-    for len in [129usize, 512, 1024, 4096] {
-      for round in 0..24 {
-        let mut input = vec![fill; len];
+    // One buffer per class at the longest length, refilled per round.
+    let mut buf = vec![fill; 4096];
+
+    for len in random_lengths() {
+      for round in 0..random_rounds() {
         // Sprinkle non-members at random positions with varying density, so
         // runs of every length from zero to the whole slice occur.
         let density = 1 + (round % 12) * 8;
-        for byte in input.iter_mut() {
-          if (next() as usize).is_multiple_of(density) {
-            *byte = miss;
-          }
+        for byte in buf[..len].iter_mut() {
+          *byte = if (next() as usize).is_multiple_of(density) {
+            miss
+          } else {
+            fill
+          };
         }
+        let input = &buf[..len];
         assert_eq!(
-          scanner(&input),
-          oracle(&input, member),
+          scanner(input),
+          oracle(input, member),
           "{name}: len={len}, round={round}, density={density}"
         );
 
@@ -337,11 +545,17 @@ fn fully_random_bytes_agree_with_the_oracle() {
     ..
   } in CLASSES
   {
-    for len in 0..=200usize {
-      let input: Vec<u8> = (0..len).map(|_| (next() >> 33) as u8).collect();
+    // One buffer per class, refilled and sliced.
+    let mut buf = [0u8; 200];
+
+    for len in random_byte_lengths() {
+      for byte in buf[..len].iter_mut() {
+        *byte = (next() >> 33) as u8;
+      }
+      let input = &buf[..len];
       assert_eq!(
-        scanner(&input),
-        oracle(&input, member),
+        scanner(input),
+        oracle(input, member),
         "{name}: random bytes, len={len}"
       );
     }
@@ -365,13 +579,15 @@ fn all_256_bytes_classify_identically_at_the_head() {
     ..
   } in CLASSES
   {
+    let mut buf = [fill; 128];
+
     for byte in 0..=255u8 {
-      let mut input = vec![fill; 128];
-      input[0] = byte;
-      let got = scanner(&input);
+      buf[0] = byte;
+      let input = &buf[..];
+      let got = scanner(input);
       assert_eq!(
         got,
-        oracle(&input, member),
+        oracle(input, member),
         "{name}: byte={byte:#04x} at head"
       );
       assert_eq!(
@@ -422,6 +638,27 @@ fn positions_past_the_probe(len: usize) -> Vec<usize> {
   positions.retain(|&p| p >= 8 && p < len);
   positions.sort_unstable();
   positions.dedup();
+
+  // Under Miri this sweep is the most expensive in the file: every position is
+  // crossed with all 256 byte values and every class. The byte crossing is a
+  // *classification* claim, which the native run settles; what Miri needs from
+  // it is that each distinct tail shape is entered once. Keep the first offset
+  // past the probe, one inside the 2x-unrolled stride, and the last byte.
+  if cfg!(miri) {
+    let last = positions.len().saturating_sub(1);
+    let mid = positions.len() / 2;
+    let mut reduced: Vec<usize> = [
+      positions.first().copied(),
+      positions.get(mid).copied(),
+      positions.get(last).copied(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    reduced.dedup();
+    return reduced;
+  }
+
   positions
 }
 
@@ -446,7 +683,7 @@ fn all_256_bytes_classify_identically_past_the_probe() {
     ..
   } in CLASSES
   {
-    for len in VECTOR_LENGTHS {
+    for len in vector_lengths() {
       let mut input = vec![fill; len];
 
       for pos in positions_past_the_probe(len) {
