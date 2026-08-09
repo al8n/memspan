@@ -18,7 +18,7 @@ else, and every one of them was, or still is, only a comment:
   matrix carried `16`/`32` after the constants moved to `8`, and nothing
   noticed until a human read the diff.
 * `isolate` pins the dispatcher to the tier the leg claims to measure, in two
-  workflows at once — the sweep and `class-perf-bar` in `ci.yml`. If the SSE4.2
+  workflows at once — the sweep and `probe-reversion` in `ci.yml`. If the SSE4.2
   leg of either lost `--cfg memspan_disable_avx2` it would time the AVX2 kernel
   and publish it as SSE4.2, under a green tick.
 
@@ -92,10 +92,10 @@ TIER_ORDER = ("sse42", "avx2", "avx512")
 X86_BACKENDS = {tier: f"src/skip/{tier}.rs" for tier in TIER_ORDER}
 
 # Tiers whose hardware every GitHub-hosted x86 runner has, and which the
-# pull-request perf bar therefore must cover. AVX-512 is absent on purpose:
-# hosted runners do not have it, which is why the sweep's AVX-512 leg has never
-# produced a measurement.
-BAR_TIERS = {"sse42", "avx2"}
+# pull-request reversion check therefore must cover. AVX-512 is absent on
+# purpose: hosted runners do not have it, which is why the sweep's AVX-512 leg
+# has never produced a measurement.
+REVERSION_TIERS = {"sse42", "avx2"}
 
 CLASS_PROBE_RE = re.compile(
     r"const\s+CLASS_PROBE\s*:\s*usize\s*=\s*super::class_probe\(\s*"
@@ -391,25 +391,27 @@ def check(repo_root: str) -> list[str]:
             "was added to end."
         )
 
-    # The bar in `ci.yml` pins the dispatcher for the same tiers. Both matrices
-    # are held against the dispatcher's tier order rather than against each
-    # other, so a flag that is wrong the same way in both still fails.
+    # `probe-reversion` in `ci.yml` pins the dispatcher for the same tiers.
+    # Both matrices are held against the dispatcher's tier order rather than
+    # against each other, so a flag that is wrong the same way in both still
+    # fails.
     ci_text = read(repo_root, CI_WORKFLOW)
-    bar = matrix_include(ci_text, CI_WORKFLOW, "class-perf-bar")
-    bar_tiers = {entry["tier"] for entry in bar}
-    if bar_tiers != BAR_TIERS:
+    reversion = matrix_include(ci_text, CI_WORKFLOW, "probe-reversion")
+    reversion_tiers = {entry["tier"] for entry in reversion}
+    if reversion_tiers != REVERSION_TIERS:
         die(
-            f"`class-perf-bar` in `{CI_WORKFLOW}` covers "
-            + (", ".join(f"`{t}`" for t in sorted(bar_tiers)) or "nothing")
+            f"`probe-reversion` in `{CI_WORKFLOW}` covers "
+            + (", ".join(f"`{t}`" for t in sorted(reversion_tiers)) or "nothing")
             + ", but every hosted x86 runner has "
-            + ", ".join(f"`{t}`" for t in sorted(BAR_TIERS))
-            + " and the bar must cover exactly those. A tier dropped from the "
-            "bar is a tier whose regression merges green."
+            + ", ".join(f"`{t}`" for t in sorted(REVERSION_TIERS))
+            + " and the check must cover exactly those. A tier dropped from it "
+            "is a tier whose probe can be widened again with nothing measuring "
+            "it."
         )
 
     declared = declared_disable_cfgs(repo_root)
     check_isolation(sweep, SWEEP_WORKFLOW, declared, "the sweep")
-    check_isolation(bar, CI_WORKFLOW, declared, "`class-perf-bar`")
+    check_isolation(reversion, CI_WORKFLOW, declared, "`probe-reversion`")
 
     return required
 
@@ -439,7 +441,7 @@ def selftest() -> int:
     """Plant every drift this script claims to catch, and require each to fail."""
     import tempfile
 
-    def workflow(entries: str, bar: str | None = None) -> tuple[str, str]:
+    def workflow(entries: str, reversion: str | None = None) -> tuple[str, str]:
         sweep_yaml = (
             "name: probe-sweep\n"
             "on:\n  workflow_dispatch:\n"
@@ -450,7 +452,7 @@ def selftest() -> int:
             "      matrix:\n"
             "        include:\n" + entries
         )
-        bar_entries = bar if bar is not None else (
+        reversion_entries = reversion if reversion is not None else (
             f"          - tier: sse42\n            isolate: {ISO_SSE42}\n"
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n"
         )
@@ -458,11 +460,11 @@ def selftest() -> int:
             "name: CI\n"
             "on:\n  pull_request:\n"
             "jobs:\n"
-            "  class-perf-bar:\n"
+            "  probe-reversion:\n"
             "    runs-on: ubuntu-latest\n"
             "    strategy:\n"
             "      matrix:\n"
-            "        include:\n" + bar_entries
+            "        include:\n" + reversion_entries
         )
         return sweep_yaml, ci_yaml
 
@@ -601,7 +603,7 @@ def selftest() -> int:
             None, good_sources, False, "no sweep tier has",
         ),
         (
-            "the bar's SSE4.2 leg stopped disabling AVX2",
+            "the reversion check's SSE4.2 leg stopped disabling AVX2",
             good_matrix,
             f"          - tier: sse42\n            isolate: {ISO_AVX2}\n"
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n",
@@ -654,7 +656,7 @@ def selftest() -> int:
             None, good_sources, False, "has no `isolate`",
         ),
         (
-            "a tier dropped from the bar",
+            "a tier dropped from the reversion check",
             good_matrix,
             f"          - tier: avx2\n            isolate: {ISO_AVX2}\n",
             good_sources, False, "must cover exactly those",
@@ -668,9 +670,9 @@ def selftest() -> int:
     ]
 
     failures: list[str] = []
-    for label, entries, bar, sources, expect_ok, needle in cases:
+    for label, entries, reversion, sources, expect_ok, needle in cases:
         with tempfile.TemporaryDirectory() as root:
-            sweep_yaml, ci_yaml = workflow(entries, bar)
+            sweep_yaml, ci_yaml = workflow(entries, reversion)
             os.makedirs(os.path.join(root, ".github", "workflows"))
             os.makedirs(os.path.join(root, "src", "skip"))
             with open(os.path.join(root, SWEEP_WORKFLOW), "w") as handle:
@@ -748,7 +750,7 @@ def main() -> int:
 
     print(
         "probe-sweep matrix agrees with the shipped constants, the swept sets, "
-        "and the bar's isolation flags; tiers that must measure: "
+        "and the reversion check's isolation flags; tiers that must measure: "
         + ", ".join(required)
     )
     return 0

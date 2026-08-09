@@ -1,9 +1,9 @@
 name: probe-sweep
 
 # Times the scalar-probe width of each x86 SIMD backend against the plain
-# scalar loop, and reports a table. The table itself is exploratory; the width
-# the crate ships is gated elsewhere, and by something else — see "What gates
-# and what does not" below.
+# scalar loop, and reports a table. The table itself is exploratory; whether
+# the shipped width is still the narrow one is checked elsewhere, and by
+# something much smaller — see "What is checked and what is not" below.
 #
 # # Why this exists
 #
@@ -27,34 +27,43 @@ name: probe-sweep
 # still compares each shipped width against its neighbours, so a host that has
 # the hardware can revisit any of the three.
 #
-# # What gates and what does not
+# # What is checked and what is not
 #
-# **This sweep does not gate a timing, and `ci/probe_sweep.py` passes no
+# **This sweep does not judge a timing, and `ci/probe_sweep.py` passes no
 # judgement on one.** There is nothing here to judge *against*: a sweep has no
 # before and no after, only a set of widths, so any pass/fail threshold on its
 # own numbers would be invented rather than measured. It is also expensive —
 # one build and two timed rounds per width per tier — and a multi-minute perf
 # comparison attached to every push is a check people learn to bypass, which is
 # worse than an honest scheduled job. So this job renders a table and uploads
-# the raw criterion estimates, marks no winner, applies no bar, and leaves the
-# choice of width to whoever reads it.
+# the raw criterion estimates, marks no winner, applies no threshold, and
+# leaves the choice of width to whoever reads it.
 #
-# **The width the crate actually ships is gated, on every pull request, by the
-# `class-perf-bar` job in `.github/workflows/ci.yml`.** That job asks a far
-# smaller question than a sweep can, and one that has an absolute answer: at
-# the shipped width only, is `skip_ident` or `skip_ident_start` more than 1.25x
-# the plain scalar `position` loop the SIMD scanner replaced? Both series are
-# timed in the same process on the same corpus, so the ratio needs no history
-# and does not drift between runs, and one build per tier is cheap enough to
-# run on every push. Restoring a chunk-width probe on SSE4.2 or AVX2 fails it.
-# `ci/class_perf_bar.py` records why the bar is 1.25 rather than 1.00 — SSE4.2
-# `skip_ident` legitimately measures 1.18 and 1.00 would reject correct code —
-# and which of the four monitored cells do the detecting.
+# **Whether the shipped probe is still narrow is checked, on every pull
+# request, by the `probe-reversion` job in `.github/workflows/ci.yml`.** That
+# job asks a far smaller question than a sweep can: at the shipped width only,
+# do `skip_ident` and `skip_ident_start` stay inside the bands that separate an
+# 8-byte probe from a chunk-width one? Both series are timed in the same
+# process on the same corpus, so the ratio needs no history and does not drift
+# between runs, and one build per tier is cheap enough to run on every push.
+# Restoring a chunk-width probe on SSE4.2 or AVX2 moves every monitored cell
+# out of its band. `ci/check_probe_reversion.py` carries the bands and the
+# measurements that place them.
 #
-# **Nothing gates AVX-512 or wasm `simd128`, and that is a statement rather
-# than an omission.** No hosted runner has AVX-512, no workflow times
-# `simd128`, and a bar cannot be applied to a measurement that does not exist.
-# Those two backends are guarded by review.
+# **That job does not check scalar parity, and no job here does.** SSE4.2
+# `skip_ident` measures 1.18 at the shipped width and AVX2 `skip_ident_start`
+# 1.11; those are the best configurations this sweep found, so a threshold at
+# 1.00 would reject correct code. Both bands sit above parity by construction
+# and certify nothing about it.
+#
+# **It also reports rather than blocks.** This repository has no branch
+# protection rule and no ruleset, so a red `probe-reversion` leg is visible on
+# the pull request and a maintainer can still merge or push directly past it.
+#
+# **Nothing at all covers AVX-512 or wasm `simd128`, and that is a statement
+# rather than an omission.** No hosted runner has AVX-512, no workflow times
+# `simd128`, and no threshold can be applied to a measurement that does not
+# exist. Those two backends are guarded by review.
 #
 # This job does fail, loudly, on anything structural: a swept scanner that the
 # backend does not generate with `skip_ascii_class!` and so cannot respond to
@@ -147,7 +156,7 @@ jobs:
           # `ci/check_probe_matrix.py` holds `default_probe` against the
           # constant in `src/skip/<tier>.rs`; derives `isolate` from the
           # dispatcher's tier order, so a flag that is missing, extra or
-          # misspelt fails even when `class-perf-bar` in `ci.yml` has the same
+          # misspelt fails even when `probe-reversion` in `ci.yml` has the same
           # mistake; and is what `require-measurements` reads to learn which
           # tiers must measure, so that list is a single source rather than a
           # third copy. It runs below, and on every pull request from `ci.yml`.

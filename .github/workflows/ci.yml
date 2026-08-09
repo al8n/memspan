@@ -56,7 +56,7 @@ jobs:
       run: cargo fmt --all -- --check
 
   # The probe-sweep matrix restates the shipped `CLASS_PROBE` of each x86
-  # backend, and `class-perf-bar` below restates that workflow's dispatcher
+  # backend, and `probe-reversion` below restates that workflow's dispatcher
   # isolation flags. Neither restatement was enforced by anything, and one of
   # them had already gone stale: the matrix carried `default_probe: 16/32`
   # after the constants moved to `8`, which would have made every future sweep
@@ -85,7 +85,7 @@ jobs:
       - name: Drive the sweep's measurement assertions through every state
         run: python3 ci/check_sweep_assertions.py
 
-  # The one perf claim in this crate that has an absolute answer, gated.
+  # Detects the `CLASS_PROBE` narrowing being reverted. Nothing more.
   #
   # `skip_ident` and `skip_ident_start` were both slower through the SIMD
   # scanner than through the plain scalar `position` loop it replaces, on both
@@ -94,21 +94,40 @@ jobs:
   # is a correctness oracle and passes at every width by design — so the fix
   # was protected by nothing but the commit message until this job existed.
   #
+  # **This job does not certify scalar parity, and no longer describes itself
+  # as if it did.** Two of the four monitored cells legitimately sit above 1.00
+  # at the shipped width — SSE4.2 `skip_ident` at 1.18, AVX2 `skip_ident_start`
+  # at 1.11 — so a bar at parity would fail correct code, and a bar loose
+  # enough to pass them cannot answer a parity question. What it does answer is
+  # whether the probe has gone back to a chunk width, which moves `skip_ident`
+  # to 1.41 on SSE4.2 and 1.59 on AVX2 and `skip_ident_start` to 1.26 and 1.24:
+  # far outside any spread these benchmarks show. `ci/check_probe_reversion.py`
+  # carries both bands, the measurements that place them, and the margin on
+  # each side.
+  #
+  # **It reports; it does not block.** This repository has no branch protection
+  # rule and no ruleset, so a red leg here is visible on the pull request and a
+  # maintainer can still merge or push directly past it. Making it required is
+  # a repository setting; if that is ever enabled this comment should say so,
+  # and it must never claim more than the configuration delivers.
+  #
   # This is not the probe sweep. The sweep compares several widths, takes tens
   # of minutes, and cannot be attached to a push without becoming a check
   # people route around; see `.github/workflows/probe-sweep.yml`. This job
-  # measures **only the shipped width** and asks whether it beats the code it
-  # replaced, which needs one build per tier and two short rounds. Both series
-  # are timed in the same process on the same corpus, so the ratio carries no
-  # dependence on runner speed or on a stored baseline.
-  #
-  # Why the bar is 1.25 and not 1.00, and which cells actually detect a
-  # revert, are recorded in `ci/class_perf_bar.py`. In short: SSE4.2
-  # `skip_ident` legitimately measures 1.18 at the shipped width, so 1.00 would
-  # fail correct code.
-  class-perf-bar:
-    name: class-perf-bar-${{ matrix.tier }}
+  # measures **only the shipped width**, which needs one build per tier and
+  # five short rounds. Both series are timed in the same process on the same
+  # corpus, so the ratio carries no dependence on runner speed or on a stored
+  # baseline.
+  probe-reversion:
+    name: probe-reversion-${{ matrix.tier }}
     runs-on: ubuntu-latest
+    env:
+      # One number, read by the bench loop and by the check below, so the count
+      # of rounds written and the count required cannot drift apart. Five and
+      # not two: the statistic is the median, three of five rounds have to
+      # agree to move the verdict, and an even count makes the median the mean
+      # of the middle pair. See `ci/check_probe_reversion.py`.
+      ROUNDS: 5
     strategy:
       fail-fast: false
       matrix:
@@ -139,62 +158,61 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target-bar
-          key: ${{ runner.os }}-perf-bar-${{ matrix.tier }}-${{ hashFiles('**/Cargo.lock') }}
+            target-reversion
+          key: ${{ runner.os }}-probe-reversion-${{ matrix.tier }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-perf-bar-${{ matrix.tier }}-
+            ${{ runner.os }}-probe-reversion-${{ matrix.tier }}-
       - name: Install Rust
         run: rustup update stable && rustup default stable
 
-      # Run before anything is measured, so a bar that cannot fail is caught
+      # Run before anything is measured, so a check that cannot fail is caught
       # even on a run where the measurement never happens.
-      - name: Prove the bar bites
-        run: python3 ci/class_perf_bar.py --selftest
+      - name: Prove the reversion check bites
+        run: python3 ci/check_probe_reversion.py --selftest
 
       # Not a skip. This job pins `runs-on: ubuntu-latest` precisely to get
       # this hardware, so its absence is a broken runner and not an excused
-      # leg — and a perf gate that quietly stands down when it cannot measure
+      # leg — and a perf check that quietly stands down when it cannot measure
       # is the failure this repository already had once, in probe-sweep.yml.
-      - name: Require the hardware this bar is calibrated on
+      - name: Require the hardware these bands were measured on
         shell: bash
         run: |
           if ! grep -qw "${{ matrix.cpu_flag }}" /proc/cpuinfo; then
-            echo "::error::this runner reports no ${{ matrix.cpu_flag }}, so the ${{ matrix.tier }} bar cannot be applied"
+            echo "::error::this runner reports no ${{ matrix.cpu_flag }}, so the ${{ matrix.tier }} bands cannot be applied"
             grep -m1 'model name' /proc/cpuinfo || true
             exit 1
           fi
           echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)"
 
-      # Two rounds, so a single noisy one cannot fail a clean tree: the bar is
-      # applied to the best of them. `RUSTFLAGS` deliberately omits the
-      # workflow-level `-Dwarnings` — the isolating cfgs make some backends
-      # dead code, and this job's business is timing, not lint coverage, which
-      # `clippy --all-targets` already has.
+      # `RUSTFLAGS` deliberately omits the workflow-level `-Dwarnings` — the
+      # isolating cfgs make some backends dead code, and this job's business is
+      # timing, not lint coverage, which `clippy --all-targets` already has.
       - name: Time the shipped width against the scalar loop
         shell: bash
         env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/target-bar
-          CRITERION_HOME: ${{ github.workspace }}/criterion-bar
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target-reversion
+          CRITERION_HOME: ${{ github.workspace }}/criterion-reversion
           RUSTFLAGS: ${{ matrix.isolate }}
         run: |
-          for round in 1 2; do
+          for round in $(seq 1 "$ROUNDS"); do
             echo "::group::round $round"
             cargo bench --bench short_run -- \
               --warm-up-time 1 --measurement-time 2 --sample-size 100 \
-              --save-baseline "bar_r${round}" \
+              --save-baseline "shipped_r${round}" \
               '^lexer_sweep/skip_ident(_start)?/(memspan|scalar)/'
             echo "::endgroup::"
           done
 
-      - name: Apply the bar
+      # The bands are not restated here. They live in the script, which is also
+      # what documents the measurements that place them; a workflow copy could
+      # pass a looser number than that file describes and nothing would notice.
+      - name: Check the shipped width against its bands
         shell: bash
         run: |
-          python3 ci/class_perf_bar.py \
-            --criterion-home "${{ github.workspace }}/criterion-bar" \
+          python3 ci/check_probe_reversion.py \
+            --criterion-home "${{ github.workspace }}/criterion-reversion" \
             --tier "${{ matrix.tier }}" \
-            --baselines bar_r1,bar_r2 \
-            --classes skip_ident,skip_ident_start \
-            --max-ratio 1.25 \
+            --rounds "$ROUNDS" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Apply clippy lints

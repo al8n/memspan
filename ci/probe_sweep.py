@@ -28,12 +28,15 @@ Nothing here judges a *regression*: a sweep has no before/after, only a set of
 widths, so any pass/fail threshold on the timings themselves would be invented
 rather than measured. The failures above are all structural.
 
-That is a statement about this script and not about the crate. The width the
-crate *ships* is judged, on every pull request, by `ci/class_perf_bar.py`,
-which asks a question a sweep cannot: at one width, is the scanner slower than
-the plain scalar loop it replaced? That has a before — the code the SIMD path
-displaced, timed in the same process — so it grounds a bar without inventing
-one.
+That is a statement about this script and not about the crate. Whether the
+shipped width is still the narrow one is checked, on every pull request, by
+`ci/check_probe_reversion.py`, which asks a question a sweep cannot: at one
+width, does each monitored class stay inside the band separating an 8-byte
+probe from a chunk-width one? Those two configurations were both measured here,
+so the band is placed between two numbers rather than invented. It is not a
+parity check — two of the four cells it watches sit legitimately above 1.00 —
+and it reports rather than blocks, because the repository has no branch
+protection rule or ruleset.
 """
 
 from __future__ import annotations
@@ -165,13 +168,14 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 #    script is the workflow step that runs it, that workflow is
 #    dispatch-and-schedule only, and no merge or downstream job gates on its
 #    table. Every consumer of these numbers is a person deciding whether to tune
-#    a constant. The pull-request gate on the shipped width reads its own
-#    measurement through `ci/class_perf_bar.py` and does not parse this output,
-#    so widening the reporter's remit would buy that gate nothing.
+#    a constant. The pull-request check on the shipped width reads its own
+#    measurement through `ci/check_probe_reversion.py` and does not parse this
+#    output, so widening the reporter's remit would buy that check nothing.
 # 2. Criterion's own confidence interval cannot ground a threshold here. On the
 #    reference run, between-round drift exceeded the within-run CI half-width in
-#    10 of 15 benchmarks, by up to 23.4x, so a bar built on those intervals would
-#    declare differences real in two thirds of rows where a re-run disagrees.
+#    10 of 15 benchmarks, by up to 23.4x, so a threshold built on those
+#    intervals would declare differences real in two thirds of rows where a
+#    re-run disagrees.
 #    Recorded in `ci/reference/round-drift.json`; `ci/check_uncertainty.py`
 #    rederives these counts and fails if they no longer hold.
 # 3. Between-round variance cannot ground one either: the design is two rounds,
