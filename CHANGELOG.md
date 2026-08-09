@@ -47,27 +47,39 @@ PERFORMANCE
      `tests/short_run_differential.rs`, which the sweep runs per-width on real x86 hardware.
    - **A revert is detected by CI rather than by the commit message.** No test in this
      repository can fail if this constant is widened again — the differential suite is a
-     correctness oracle and passes at every width by design — so `probe-reversion` in
-     `.github/workflows/ci.yml` times the shipped width on both x86 tiers of every pull
-     request and fails when the median of five rounds leaves the band that separates an
-     8-byte probe from a chunk-width one: 1.25 for `skip_ident` (worst shipped
-     observation 1.19, against 1.41 and 1.59 at chunk width) and 1.18 for
-     `skip_ident_start` (1.12, against 1.26 and 1.24). It is **not** a scalar-parity
-     check and does not claim to be — SSE4.2
-     `skip_ident` legitimately measures 1.18 and AVX2 `skip_ident_start` 1.11, so a
-     threshold at 1.00 would reject correct code. It also reports rather than blocks:
-     this repository has no branch protection rule or ruleset, so a red leg is visible
-     on the pull request and does not stop a merge. `ci/check_probe_reversion.py`
-     carries the measurements that place both bands.
+     correctness oracle and passes at every width by design. `CLASS_PROBE` is a
+     compile-time constant per backend, so the `probe-width` job in
+     `.github/workflows/ci.yml` decides this from the source:
+     `ci/check_probe_width.py` holds every `src/skip/<backend>.rs` against the width this
+     crate intends, covers NEON and wasm `simd128` as well as the x86 tiers, and refuses a
+     `build.rs` or `.cargo/config.toml` that would override the width behind the source's
+     back. No hardware, no runner and no threshold are involved, so nothing about the
+     verdict moves with the machine GitHub allocated.
+   - **The timing is evidence, not the gate.** `probe-timing` in the same workflow still
+     times the shipped width on both x86 tiers of every pull request, prints each round,
+     the median and a reference line derived from the sweep's own shipped and chunk-width
+     measurements, and annotates a row that goes over — but it does not fail on one.
+     It did until the third review round, when the band turned out to depend on which CPU
+     model the hosted runner happened to be: the lines were calibrated on an AMD EPYC
+     7763, `ubuntu-latest` pins no model, and a model shift moves every round together.
+     Absence still fails: a missing series, round or result set is an error, because a
+     report that measures nothing and exits 0 is a defect this repository already shipped
+     once. It is **not** a scalar-parity check either — SSE4.2 `skip_ident` legitimately
+     measures 1.18 and AVX2 `skip_ident_start` 1.11, so a line at 1.00 would flag correct
+     code. `ci/report_probe_timing.py` derives both reference lines, and its selftest
+     rederives every number in its documentation from the recorded observations.
+   - A red check does not stop a merge in either case: this repository has no branch
+     protection rule or ruleset, so a failing leg is visible on the pull request and a
+     maintainer can still merge or push past it.
 
 INTERNAL
 
 1. Make the probe-sweep workflow's claims enforceable
    - `.github/workflows/probe-sweep.yml` said it "does not gate anything" and nothing
      else did either. It still passes no judgement on a *timing* — a sweep has no before
-     or after — but the shipped width is now measured against a band on every pull
-     request by the job above, and the workflow says where instead of leaving the reader
-     to infer that nothing does.
+     or after — but the shipped width is now gated from the source on every pull request
+     by the job above, and the workflow says where instead of leaving the reader to infer
+     that nothing does.
    - **A leg that measures nothing no longer reports success.** When the CPU flag was
      missing, every step of that tier — build, differential, sweep, render and upload —
      was skipped by one shared `available == 'true'` condition and the leg exited green.
@@ -84,8 +96,9 @@ INTERNAL
      already drifted once. `ci/check_probe_matrix.py` now parses `class_probe(...)` out
      of each `src/skip/<tier>.rs`, applies the same clamp the function applies, and
      fails on any disagreement; it also holds the sweep's dispatcher-isolation flags
-     against `probe-reversion`'s, and is the single source for which tiers must
-     measure.
+     against `probe-timing`'s, and is the single source for which tiers must
+     measure. `ci/check_probe_width.py` imports that same `class_probe(...)` parser
+     rather than growing a second one.
    - Render the sweep table under `shell: bash`. Without `pipefail`, `probe_sweep.py |
      tee` took `tee`'s exit code, so every structural refusal that reporter makes was
      unreachable — a refusal was written into the summary and the step passed.

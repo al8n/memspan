@@ -40,25 +40,30 @@ name: probe-sweep
 # leaves the choice of width to whoever reads it.
 #
 # **Whether the shipped probe is still narrow is checked, on every pull
-# request, by the `probe-reversion` job in `.github/workflows/ci.yml`.** That
-# job asks a far smaller question than a sweep can: at the shipped width only,
-# do `skip_ident` and `skip_ident_start` stay inside the bands that separate an
-# 8-byte probe from a chunk-width one? Both series are timed in the same
-# process on the same corpus, so the ratio needs no history and does not drift
-# between runs, and one build per tier is cheap enough to run on every push.
-# Restoring a chunk-width probe on SSE4.2 or AVX2 moves every monitored cell
-# out of its band. `ci/check_probe_reversion.py` carries the bands and the
-# measurements that place them.
+# request, by the `probe-width` job in `.github/workflows/ci.yml`.** It reads
+# the constants: `CLASS_PROBE` is a compile-time constant per backend, so a
+# revert is a source-level fact, and `ci/check_probe_width.py` holds each
+# backend's declaration against the width this crate intends. No hardware, no
+# runner and no threshold enter into it — including for NEON and wasm
+# `simd128`, which no timing job here or in `ci.yml` can reach.
 #
-# **That job does not check scalar parity, and no job here does.** SSE4.2
-# `skip_ident` measures 1.18 at the shipped width and AVX2 `skip_ident_start`
-# 1.11; those are the best configurations this sweep found, so a threshold at
-# 1.00 would reject correct code. Both bands sit above parity by construction
-# and certify nothing about it.
+# The `probe-timing` job in `ci.yml` still times the shipped width on both x86
+# tiers of every pull request, and **reports rather than decides**: it prints
+# each round, the median and a reference line derived from the sweep's own
+# shipped and chunk-width measurements, annotates a row that goes over, and
+# does not fail on one. It failed on one until the third review round, when the
+# band it enforced turned out to depend on which CPU model GitHub allocated;
+# `ci/report_probe_timing.py` records that reasoning.
 #
-# **It also reports rather than blocks.** This repository has no branch
-# protection rule and no ruleset, so a red `probe-reversion` leg is visible on
-# the pull request and a maintainer can still merge or push directly past it.
+# **Nothing checks scalar parity, here or there.** SSE4.2 `skip_ident` measures
+# 1.18 at the shipped width and AVX2 `skip_ident_start` 1.11; those are the best
+# configurations this sweep found, so a threshold at 1.00 would reject correct
+# code. Every reference line sits above parity by construction and certifies
+# nothing about it.
+#
+# **A red check does not stop a merge.** This repository has no branch
+# protection rule and no ruleset, so a failing `probe-width` is visible on the
+# pull request and a maintainer can still merge or push directly past it.
 #
 # **Nothing at all covers AVX-512 or wasm `simd128`, and that is a statement
 # rather than an omission.** No hosted runner has AVX-512, no workflow times
@@ -156,7 +161,7 @@ jobs:
           # `ci/check_probe_matrix.py` holds `default_probe` against the
           # constant in `src/skip/<tier>.rs`; derives `isolate` from the
           # dispatcher's tier order, so a flag that is missing, extra or
-          # misspelt fails even when `probe-reversion` in `ci.yml` has the same
+          # misspelt fails even when `probe-timing` in `ci.yml` has the same
           # mistake; and is what `require-measurements` reads to learn which
           # tiers must measure, so that list is a single source rather than a
           # third copy. It runs below, and on every pull request from `ci.yml`.

@@ -30,13 +30,18 @@ rather than measured. The failures above are all structural.
 
 That is a statement about this script and not about the crate. Whether the
 shipped width is still the narrow one is checked, on every pull request, by
-`ci/check_probe_reversion.py`, which asks a question a sweep cannot: at one
-width, does each monitored class stay inside the band separating an 8-byte
-probe from a chunk-width one? Those two configurations were both measured here,
-so the band is placed between two numbers rather than invented. It is not a
-parity check — two of the four cells it watches sit legitimately above 1.00 —
-and it reports rather than blocks, because the repository has no branch
-protection rule or ruleset.
+`ci/check_probe_width.py`, which reads the constants instead of timing them:
+`CLASS_PROBE` is a compile-time constant per backend, so a revert is decidable
+from source, and no threshold, runner or measurement enters into it. A red check
+there does not stop a merge, because the repository has no branch protection
+rule or ruleset.
+
+`ci/report_probe_timing.py` still times the shipped width on every pull request,
+and reports rather than decides. Its reference lines are derived from two
+configurations this sweep measured — the shipped width and the chunk width — so
+they sit between two numbers rather than being invented, but a row that goes
+over one is annotated, not failed. They are not a parity check either: two of
+the four cells it watches sit legitimately above 1.00.
 """
 
 from __future__ import annotations
@@ -168,9 +173,11 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 #    script is the workflow step that runs it, that workflow is
 #    dispatch-and-schedule only, and no merge or downstream job gates on its
 #    table. Every consumer of these numbers is a person deciding whether to tune
-#    a constant. The pull-request check on the shipped width reads its own
-#    measurement through `ci/check_probe_reversion.py` and does not parse this
-#    output, so widening the reporter's remit would buy that check nothing.
+#    a constant. The pull-request gate on the shipped width reads the source
+#    through `ci/check_probe_width.py` and never looks at a timing at all, and
+#    the pull-request timing report takes its own measurements through
+#    `ci/report_probe_timing.py`. Neither parses this output, so widening the
+#    reporter's remit would buy either of them nothing.
 # 2. Criterion's own confidence interval cannot ground a threshold here. On the
 #    reference run, between-round drift exceeded the within-run CI half-width in
 #    10 of 15 benchmarks, by up to 23.4x, so a threshold built on those
