@@ -1,15 +1,31 @@
 use memspan::skip;
 
+/// One buffer, mutated in place and sliced to the length under test.
+///
+/// Allocating inside these loops instead cost 4753 allocations per call and
+/// 52283 across the eleven callers. Miri does not aggressively reuse addresses,
+/// so on i686 — the only 32-bit target, and so the only one with a 4 GiB
+/// simulated address space to exhaust — the count is what matters rather than
+/// the size. Coverage is identical.
+///
+/// The expected answers here are stated in terms of the loop variables rather
+/// than recomputed, which is also what keeps the shared buffer honest: a byte
+/// left dirty by a previous iteration shows up as a wrong prefix length instead
+/// of silently changing which input is tested.
 fn assert_prefix_boundaries(scanner: fn(&[u8]) -> usize, fill: u8, miss: u8) {
+  let mut buf = [fill; 96];
+
   for len in 0usize..=96 {
-    let input = vec![fill; len];
-    assert_eq!(scanner(&input), len, "len={len}, all-match");
+    assert_eq!(scanner(&buf[..len]), len, "len={len}, all-match");
 
     for miss_pos in 0..len {
-      let mut input = vec![fill; len];
-      input[miss_pos] = miss;
-
-      assert_eq!(scanner(&input), miss_pos, "len={len}, miss_pos={miss_pos}");
+      buf[miss_pos] = miss;
+      assert_eq!(
+        scanner(&buf[..len]),
+        miss_pos,
+        "len={len}, miss_pos={miss_pos}"
+      );
+      buf[miss_pos] = fill;
     }
   }
 }

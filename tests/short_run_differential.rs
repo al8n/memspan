@@ -203,22 +203,47 @@ fn every_short_length_and_miss_position_agrees_with_the_oracle() {
     miss,
   } in CLASSES
   {
+    // One buffer per class, mutated in place and sliced to the length under
+    // test. Allocating inside these loops instead cost 4753 allocations per
+    // class and 71295 across the fifteen, which exhausted Miri's simulated
+    // address space on i686 — the only 32-bit target, and so the only one where
+    // 4 GiB can run out. Miri does not aggressively reuse addresses, so the
+    // count is what matters rather than the size. Coverage is identical.
+    let mut buf = [fill; MAX_LEN];
+
     for len in 0..=MAX_LEN {
-      let all_match = vec![fill; len];
+      let all_match = &buf[..len];
+      // Both assertions matter, and the second is what makes the shared buffer
+      // safe. The differential one compares the scanner against the oracle on
+      // the *same* bytes, so a buffer left dirty by a previous iteration would
+      // change which input is tested without either side noticing — silent
+      // coverage loss rather than a failure. Restating the expected answer in
+      // terms of the loop variables pins the buffer's state as well.
       assert_eq!(
-        scanner(&all_match),
-        oracle(&all_match, member),
+        oracle(all_match, member),
+        len,
+        "{name}: buffer not all-member at len={len} — a previous iteration left it dirty"
+      );
+      assert_eq!(
+        scanner(all_match),
+        oracle(all_match, member),
         "{name}: run reaching the slice end, len={len}"
       );
 
       for miss_pos in 0..len {
-        let mut input = vec![fill; len];
-        input[miss_pos] = miss;
+        buf[miss_pos] = miss;
+        let input = &buf[..len];
         assert_eq!(
-          scanner(&input),
-          oracle(&input, member),
+          oracle(input, member),
+          miss_pos,
+          "{name}: expected exactly one miss at {miss_pos} in len={len}"
+        );
+        assert_eq!(
+          scanner(input),
+          oracle(input, member),
           "{name}: len={len}, miss_pos={miss_pos}"
         );
+        buf[miss_pos] = fill;
       }
     }
   }
@@ -282,20 +307,25 @@ fn pseudorandom_long_inputs_agree_with_the_oracle() {
     miss,
   } in CLASSES
   {
+    // One buffer per class at the longest length, refilled per round.
+    let mut buf = vec![fill; 4096];
+
     for len in [129usize, 512, 1024, 4096] {
       for round in 0..24 {
-        let mut input = vec![fill; len];
         // Sprinkle non-members at random positions with varying density, so
         // runs of every length from zero to the whole slice occur.
         let density = 1 + (round % 12) * 8;
-        for byte in input.iter_mut() {
-          if (next() as usize).is_multiple_of(density) {
-            *byte = miss;
-          }
+        for byte in buf[..len].iter_mut() {
+          *byte = if (next() as usize).is_multiple_of(density) {
+            miss
+          } else {
+            fill
+          };
         }
+        let input = &buf[..len];
         assert_eq!(
-          scanner(&input),
-          oracle(&input, member),
+          scanner(input),
+          oracle(input, member),
           "{name}: len={len}, round={round}, density={density}"
         );
 
@@ -337,11 +367,17 @@ fn fully_random_bytes_agree_with_the_oracle() {
     ..
   } in CLASSES
   {
+    // One buffer per class, refilled and sliced.
+    let mut buf = [0u8; 200];
+
     for len in 0..=200usize {
-      let input: Vec<u8> = (0..len).map(|_| (next() >> 33) as u8).collect();
+      for byte in buf[..len].iter_mut() {
+        *byte = (next() >> 33) as u8;
+      }
+      let input = &buf[..len];
       assert_eq!(
-        scanner(&input),
-        oracle(&input, member),
+        scanner(input),
+        oracle(input, member),
         "{name}: random bytes, len={len}"
       );
     }
@@ -365,13 +401,15 @@ fn all_256_bytes_classify_identically_at_the_head() {
     ..
   } in CLASSES
   {
+    let mut buf = [fill; 128];
+
     for byte in 0..=255u8 {
-      let mut input = vec![fill; 128];
-      input[0] = byte;
-      let got = scanner(&input);
+      buf[0] = byte;
+      let input = &buf[..];
+      let got = scanner(input);
       assert_eq!(
         got,
-        oracle(&input, member),
+        oracle(input, member),
         "{name}: byte={byte:#04x} at head"
       );
       assert_eq!(
