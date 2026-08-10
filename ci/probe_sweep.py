@@ -27,6 +27,22 @@ Three properties this deliberately keeps:
 Nothing here judges a *regression*: a sweep has no before/after, only a set of
 widths, so any pass/fail threshold on the timings themselves would be invented
 rather than measured. The failures above are all structural.
+
+That is a statement about this script and not about the crate. Whether the
+shipped width is still the narrow one is decided by the compiler: each backend
+asserts its own `CLASS_PROBE` next to the declaration, so a revert is a failed
+build on every job that compiles that backend rather than a red script anywhere,
+and no threshold, runner or measurement enters into it. Those assertions stand
+down when this sweep passes `--cfg memspan_class_probe="N"`, which is the whole
+point of a sweep leg; `ci/check_probe_override.py` is what rules that cfg out of
+an ordinary build.
+
+`ci/report_probe_timing.py` still times the shipped width on every pull request,
+and reports rather than decides. Its reference lines are derived from two
+configurations this sweep measured — the shipped width and the chunk width — so
+they sit between two numbers rather than being invented, but a row that goes
+over one is annotated, not failed. They are not a parity check either: two of
+the four cells it watches sit legitimately above 1.00.
 """
 
 from __future__ import annotations
@@ -154,14 +170,20 @@ def load(criterion_home: str, baseline: str) -> dict[str, float]:
 # reported as measurements and left to the reader, for three reasons that were
 # checked rather than assumed:
 #
-# 1. Nothing consumes a verdict. The only machine reading this script is the
-#    workflow step that runs it, the workflow is dispatch-and-schedule only, and
-#    no merge or downstream job gates on it. Every consumer of the numbers is a
-#    person deciding whether to tune a constant.
+# 1. Nothing consumes a verdict *from here*. The only machine reading this
+#    script is the workflow step that runs it, that workflow is
+#    dispatch-and-schedule only, and no merge or downstream job gates on its
+#    table. Every consumer of these numbers is a person deciding whether to tune
+#    a constant. The gate on the shipped width is a compile-time assertion in
+#    each backend and never looks at a timing at all, and the pull-request
+#    timing report takes its own measurements through
+#    `ci/report_probe_timing.py`. Neither parses this output, so widening the
+#    reporter's remit would buy either of them nothing.
 # 2. Criterion's own confidence interval cannot ground a threshold here. On the
 #    reference run, between-round drift exceeded the within-run CI half-width in
-#    10 of 15 benchmarks, by up to 23.4x, so a bar built on those intervals would
-#    declare differences real in two thirds of rows where a re-run disagrees.
+#    10 of 15 benchmarks, by up to 23.4x, so a threshold built on those
+#    intervals would declare differences real in two thirds of rows where a
+#    re-run disagrees.
 #    Recorded in `ci/reference/round-drift.json`; `ci/check_uncertainty.py`
 #    rederives these counts and fails if they no longer hold.
 # 3. Between-round variance cannot ground one either: the design is two rounds,

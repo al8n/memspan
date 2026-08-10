@@ -1,7 +1,9 @@
 name: probe-sweep
 
 # Times the scalar-probe width of each x86 SIMD backend against the plain
-# scalar loop, and reports a table. It does not gate anything.
+# scalar loop, and reports a table. The table itself is exploratory; whether
+# the shipped width is still the narrow one is checked elsewhere, and by
+# something much smaller — see "What is checked and what is not" below.
 #
 # # Why this exists
 #
@@ -13,24 +15,71 @@ name: probe-sweep
 # of them. A measured sweep on aarch64 (#13) found a three-term predicate
 # running at 1.9x a plain scalar loop, and halving the NEON probe recovered it.
 #
-# The SSE4.2, AVX2 and AVX-512 kernels probe 16, 32 and 64 bytes, so the same
-# defect is structurally present and probably worse. Nobody has timed it,
-# because the maintainer's host is aarch64. This workflow produces those
-# numbers so the constants can be tuned from measurement instead of guessed.
+# The SSE4.2, AVX2 and AVX-512 kernels all probed a full chunk — 16, 32 and 64
+# bytes — so the same defect was structurally present and probably worse, and
+# nobody had timed it, because the maintainer's host is aarch64.
 #
-# # Why it is not a gate
+# This workflow has since timed the two x86 tiers, and both now ship a probe of
+# 8: on AVX2 that is the only measured width that puts `skip_ident` back under
+# the scalar loop, and on SSE4.2 the only one that does so for
+# `skip_ident_start`. AVX-512 is unchanged at 64, because the leg that would
+# measure it has never actually run — see the AVX-512 section below. The sweep
+# still compares each shipped width against its neighbours, so a host that has
+# the hardware can revisit any of the three.
 #
-# A perf comparison on shared runners flakes, and a flaky gate gets ignored.
-# There is also nothing here to gate *against*: a sweep has no before/after,
-# only a set of widths. The job writes a table to the run summary and uploads
-# the raw criterion estimates. `ci/probe_sweep.py` renders those measurements
-# and passes no judgement on them: it marks no winner and applies no bar. Which
-# width to adopt is left to whoever reads the table.
+# # What is checked and what is not
 #
-# It does fail, loudly, on anything structural: a swept scanner that the backend
-# does not generate with `skip_ascii_class!` and so cannot respond to the
-# constant, or an expected class x probe x round result that is absent. A
-# reporter that silently drops a row looks exactly like a clean run.
+# **This sweep does not judge a timing, and `ci/probe_sweep.py` passes no
+# judgement on one.** There is nothing here to judge *against*: a sweep has no
+# before and no after, only a set of widths, so any pass/fail threshold on its
+# own numbers would be invented rather than measured. It is also expensive —
+# one build and two timed rounds per width per tier — and a multi-minute perf
+# comparison attached to every push is a check people learn to bypass, which is
+# worse than an honest scheduled job. So this job renders a table and uploads
+# the raw criterion estimates, marks no winner, applies no threshold, and
+# leaves the choice of width to whoever reads it.
+#
+# **Whether the shipped probe is still narrow is decided by the compiler, on
+# every build.** `CLASS_PROBE` is a compile-time constant per backend, and each
+# backend asserts its own value beside the declaration, so widening one is a
+# failed build rather than a red script. No hardware, no runner and no threshold
+# enter into it — including for NEON and wasm `simd128`, which no timing job
+# here or in `ci.yml` can reach, but which `cross` and `test-wasm-simd128`
+# compile. Those assertions are gated on the override below being unset, since a
+# different width is the whole point of a sweep leg; the `probe-override` job in
+# `.github/workflows/ci.yml` is what keeps an ordinary build from setting it.
+#
+# The `probe-timing` job in `ci.yml` still times the shipped width on both x86
+# tiers of every pull request, and **reports rather than decides**: it prints
+# each round, the median and a reference line derived from the sweep's own
+# shipped and chunk-width measurements, annotates a row that goes over, and
+# does not fail on one. It failed on one until the third review round, when the
+# band it enforced turned out to depend on which CPU model GitHub allocated;
+# `ci/report_probe_timing.py` records that reasoning.
+#
+# **Nothing checks scalar parity, here or there.** SSE4.2 `skip_ident` measures
+# 1.18 at the shipped width and AVX2 `skip_ident_start` 1.11; those are the best
+# configurations this sweep found, so a threshold at 1.00 would reject correct
+# code. Every reference line sits above parity by construction and certifies
+# nothing about it.
+#
+# **A red check does not stop a merge.** This repository has no branch
+# protection rule and no ruleset, so a failing `probe-override` is visible on
+# the pull request and a maintainer can still merge or push directly past it. A
+# widened probe is not in that category: it fails a build rather than a check,
+# and there is no green tick to merge past.
+#
+# **Nothing at all covers AVX-512 or wasm `simd128`, and that is a statement
+# rather than an omission.** No hosted runner has AVX-512, no workflow times
+# `simd128`, and no threshold can be applied to a measurement that does not
+# exist. Those two backends are guarded by review.
+#
+# This job does fail, loudly, on anything structural: a swept scanner that the
+# backend does not generate with `skip_ascii_class!` and so cannot respond to
+# the constant, an expected class x probe x round result that is absent, a
+# matrix `default_probe` that no longer matches the shipped constant, or a tier
+# that finished having measured nothing. A reporter that silently drops a row,
+# and a leg that silently measures nothing, both look exactly like a clean run.
 #
 # # Why the bench filter is `lexer_sweep` and not the whole bench
 #
@@ -40,12 +89,21 @@ name: probe-sweep
 # this filter — a row the constant cannot move is not evidence about it, however
 # much work its scanner does.
 #
-# # Why AVX-512 is conditional, and why SDE is not used to time it
+# # Why AVX-512 is optional, and why SDE is not used to time it
 #
 # GitHub-hosted x86 runners are a mix of Intel Xeon (AVX-512 on some
 # generations) and AMD EPYC (none), so the AVX-512 leg times its sweep only
-# when the runner actually has AVX-512BW and otherwise reports that it could
-# not measure.
+# when the runner actually has AVX-512BW.
+#
+# It is the *only* leg allowed to finish without a measurement, and it says so
+# in its own name. Every other tier carries `required_measurement: true` and
+# fails when it produces no rendered summary, because SSE4.2 and AVX2 are on
+# every hosted x86 runner and their absence is a broken job rather than an
+# expected one. That distinction had to be made explicit: for the whole life of
+# this workflow, a missing CPU flag skipped every step including the upload,
+# and the leg exited green having measured nothing — which is why no AVX-512
+# data has ever existed while the monthly run reported success. Absence was
+# being reported as success. It now reports as absence, and only here.
 #
 # This repository already installs Intel SDE for the AVX-512 *correctness*
 # suite, and it is tempting to reuse it here. Do not: SDE is a functional
@@ -83,7 +141,7 @@ env:
 
 jobs:
   sweep:
-    name: sweep-${{ matrix.tier }}
+    name: sweep-${{ matrix.tier }}${{ matrix.required_measurement && ' (must measure)' || ' (optional, needs AVX-512 hardware)' }}
     runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -92,26 +150,68 @@ jobs:
           # `cpu_flag` is matched against /proc/cpuinfo. `isolate` pins the
           # dispatcher to this tier by disabling everything above it, so the
           # sweep measures the backend it claims to.
+          #
+          # `default_probe` must equal the `CLASS_PROBE` default that tier's
+          # backend actually ships. The reporter labels that column "(shipped)"
+          # and measures every gain against it, so a stale value here would
+          # report gains against a width the crate no longer uses. It must also
+          # be a member of `probes`, or the reporter cannot find its baseline.
+          #
+          # `required_measurement` says whether this leg is allowed to finish
+          # having timed nothing. Only AVX-512 is, and only because no hosted
+          # runner has the hardware.
+          #
+          # None of these is enforced by being written here.
+          # `ci/check_probe_matrix.py` holds `default_probe` against the
+          # constant in `src/skip/<tier>.rs`; derives `isolate` from the
+          # dispatcher's tier order, so a flag that is missing, extra or
+          # misspelt fails even when `probe-timing` in `ci.yml` has the same
+          # mistake; and is what `require-measurements` reads to learn which
+          # tiers must measure, so that list is a single source rather than a
+          # third copy. It runs below, and on every pull request from `ci.yml`.
           - tier: sse42
             cpu_flag: sse4_2
-            default_probe: 16
+            default_probe: 8
             probes: "16,8,4"
+            required_measurement: true
             isolate: --cfg memspan_disable_avx512 --cfg memspan_disable_avx2
           - tier: avx2
             cpu_flag: avx2
-            default_probe: 32
+            default_probe: 8
             probes: "32,16,8,4"
+            required_measurement: true
             isolate: --cfg memspan_disable_avx512
           - tier: avx512
             cpu_flag: avx512bw
             default_probe: 64
             probes: "64,32,16,8"
+            required_measurement: false
             isolate: ""
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust
         run: rustup update stable && rustup default stable
+
+      - name: Ensure PyYAML
+        shell: bash
+        run: python3 -c 'import yaml' || python3 -m pip install --break-system-packages --quiet pyyaml
+
+      # The matrix restates three facts that live elsewhere. Checking them here
+      # costs a second and stops the sweep before it spends twenty minutes
+      # rendering a table whose "(shipped)" column, gain baseline and reach
+      # threshold are all measured against a width the crate no longer uses.
+      - name: Prove the matrix check bites
+        run: python3 ci/check_probe_matrix.py --selftest
+
+      - name: Check the matrix against the shipped constants
+        run: python3 ci/check_probe_matrix.py
+
+      # This run cannot exercise either of its own measurement assertions --
+      # the hardware decides which branch executes, and a hosted runner only
+      # ever takes the ones that pass. Drive both here instead.
+      - name: Drive this job's measurement assertions through every state
+        run: python3 ci/check_sweep_assertions.py
 
       # The reporter decides what gets published, so it is checked before it is
       # trusted. Its fixtures compare against literal expected rows written by
@@ -204,6 +304,13 @@ jobs:
 
       - name: Render the table
         if: steps.cpu.outputs.available == 'true'
+        # `shell: bash` for `pipefail`, and it is load-bearing rather than
+        # stylistic. The default Linux shell is `bash -e` *without* it, so in
+        # `python3 ci/probe_sweep.py | tee ...` the pipeline takes `tee`'s exit
+        # code and a reporter that called `die()` would have rendered its
+        # failure message into the summary and passed the step. Every structural
+        # refusal that script makes was unreachable through this pipe.
+        shell: bash
         run: |
           {
             echo "CPU: \`${{ steps.cpu.outputs.model }}\`"
@@ -238,3 +345,136 @@ jobs:
           name: probe-sweep-${{ matrix.tier }}
           path: ${{ github.workspace }}/criterion-sweep
           if-no-files-found: error
+
+      # Terminal assertion, and deliberately unconditional.
+      #
+      # Every step above is guarded by `available == 'true'`, and the defect
+      # this closes is that when the guard was false *all* of them agreed to
+      # skip — the build, the differential, the sweep, the render and the
+      # upload — and the leg exited green having measured nothing. A check that
+      # shared the guard would have skipped with them, so this one does not
+      # consult the guard, the step outcomes, or anything else that was free to
+      # agree with the others. It asks the filesystem, under `always()`, and so
+      # runs when the guard is false and when an earlier step died.
+      #
+      # It requires the rendered heading, not merely a non-empty file. The
+      # render pipes the reporter into `tee`, so a reporter that refused to
+      # publish writes its refusal into the same path; a size check would read
+      # that as a measurement.
+      - name: Assert this tier produced a measurement
+        if: always()
+        shell: bash
+        run: |
+          summary="${{ github.workspace }}/criterion-sweep/summary-${{ matrix.tier }}.md"
+          heading="### \`${{ matrix.tier }}\` probe-length sweep"
+
+          if [ -f "$summary" ] && grep -qF "$heading" "$summary"; then
+            echo "ok: ${{ matrix.tier }} rendered a table ($(wc -l < "$summary") lines)"
+            exit 0
+          fi
+
+          if [ "${{ matrix.required_measurement }}" = "true" ]; then
+            {
+              echo "### \`${{ matrix.tier }}\` produced no measurement"
+              echo
+              echo "This leg carries \`required_measurement: true\` because every"
+              echo "GitHub-hosted x86 runner has \`${{ matrix.cpu_flag }}\`, so a leg that"
+              echo "measured nothing is a broken job and not an expected outcome."
+              echo
+              echo "No table was rendered to \`$summary\`. Either the CPU check found no"
+              echo "\`${{ matrix.cpu_flag }}\` — check the runner label — or a step before the"
+              echo "render failed, or the reporter refused to publish."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=${{ matrix.tier }} measured nothing::no rendered table at $summary"
+            exit 1
+          fi
+
+          {
+            echo "### \`${{ matrix.tier }}\` not measured (optional leg)"
+            echo
+            echo "This is the one tier allowed to finish without a measurement, because"
+            echo "GitHub's hosted pool does not offer AVX-512. **Read this leg's green"
+            echo "tick as \"did not run\", not as \"passed\"**; \`require-measurements\`"
+            echo "does not count it."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=${{ matrix.tier }} measured nothing::optional leg, no data produced"
+
+  # One job whose green means "the tiers that had to measure, measured".
+  #
+  # The per-leg assertion above cannot say that on its own: it only runs if its
+  # leg runs. A matrix entry deleted, a leg cancelled, or a job that never
+  # started leaves nothing behind to assert anything, and the workflow is green
+  # because no step failed. This job runs under `always()` after the whole
+  # matrix and checks a different observable — the artifacts the run actually
+  # has — against the list of tiers the matrix says must produce one.
+  #
+  # The expected list is read out of the matrix by the same script that checks
+  # the matrix, rather than restated here. A hard-coded `sse42 avx2` would be a
+  # third copy of a fact this workflow has already had go stale once.
+  require-measurements:
+    name: require-measurements
+    needs: sweep
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ensure PyYAML
+        shell: bash
+        run: python3 -c 'import yaml' || python3 -m pip install --break-system-packages --quiet pyyaml
+
+      - name: Assert every tier that had to measure uploaded its sweep
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          required=$(python3 ci/check_probe_matrix.py --print-required-tiers)
+          if [ -z "$required" ]; then
+            echo "::error::the matrix names no tier that must measure"
+            exit 1
+          fi
+          # `sed`, not `printf '  %s\n'`: these are multi-line strings, and
+          # printf indents only the first line of one, which reads as a
+          # one-element list and misdescribes the very thing being diagnosed.
+          echo "tiers that must measure:"
+          printf '%s\n' "$required" | sed 's/^/  /'
+
+          artifacts=$(gh api --paginate \
+            "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[].name')
+          echo "artifacts this run produced:"
+          printf '%s\n' "${artifacts:-<none>}" | sed 's/^/  /'
+
+          missing=()
+          for tier in $required; do
+            if ! printf '%s\n' "$artifacts" | grep -qx "probe-sweep-$tier"; then
+              missing+=("$tier")
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            {
+              echo "### The sweep did not measure ${missing[*]}"
+              echo
+              echo "Those tiers carry \`required_measurement: true\` and uploaded no"
+              echo "artifact, so this run produced no data for them. A green run with a"
+              echo "tier missing is the failure mode this job exists to end: for the"
+              echo "whole life of this workflow a missing CPU flag skipped every step"
+              echo "including the upload, and the leg reported success."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=required tiers measured nothing::${missing[*]}"
+            exit 1
+          fi
+
+          # Checked last so the artifact report above is always printed: a
+          # failed leg is more legible when you can also see what it did upload.
+          if [ "${{ needs.sweep.result }}" != "success" ]; then
+            echo "::error::the sweep matrix concluded '${{ needs.sweep.result }}'"
+            exit 1
+          fi
+
+          echo "every required tier uploaded a sweep artifact"

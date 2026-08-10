@@ -13,16 +13,55 @@ use crate::Needles;
 
 const CHUNK: usize = 32;
 
-/// Bytes classified scalar before the vector loop, defaulting to one chunk.
+/// Bytes classified scalar before the vector loop, narrower than one chunk.
 ///
-/// See [`crate::skip::class_probe`]. The NEON kernels ship a probe narrower
-/// than their chunk because a measured sweep on aarch64 showed the wider one
-/// costing a three-term predicate 1.9x a plain scalar loop; this backend keeps
-/// its chunk-width probe because nobody has timed the alternative on hardware
-/// that runs it. `.github/workflows/probe-sweep.yml` produces those numbers.
-const CLASS_PROBE: usize = super::class_probe(CHUNK, CHUNK);
+/// See [`crate::skip::class_probe`]. The probe scans a slice of
+/// compile-time-constant length, so LLVM unrolls it into one copy of the
+/// predicate per byte and rebuilds each copy after the first as a
+/// short-circuit branch tree. A caller whose run lengths vary — which is what
+/// lexing is — enters a different copy on every call and mispredicts in all of
+/// them. The cost tracks the number of predicate *terms* rather than the
+/// number of bytes, which is why it lands on the two identifier classes and
+/// leaves the single-range classes alone.
+///
+/// Measured by `.github/workflows/probe-sweep.yml` (run `31298019336`) on an
+/// AMD EPYC 7763, two interleaved rounds per width, as a ratio to a plain
+/// scalar `position` loop measured in the same run. Above 1.00 is slower than
+/// the code the scanner replaced:
+///
+/// | probe | `skip_ident` | `skip_ident_start` |
+/// |-------|--------------|--------------------|
+/// | 32    | 1.59         | 1.24               |
+/// | 16    | 1.17         | 1.09               |
+/// | **8** | **0.96**     | 1.11               |
+/// | 4     | 1.04         | 1.21               |
+///
+/// Eight is the only width measured that puts `skip_ident` back under the
+/// scalar loop, and that is what selects it. `skip_ident_start` is above 1.00
+/// at every width tested, so no width tested makes it a win; preferring 16 for
+/// its 1.09 over 8's 1.11 would be a choice between two losses, and the
+/// sweep's one shared synthetic schedule does not license that. The decision
+/// rests on `skip_ident` crossing parity.
+///
+/// The other thirteen classes win at every width and are not what this
+/// constant was chosen for. Those rows come from the same shared schedule and
+/// must not be summed: an equal-weight version of it reversed the direction on
+/// fourteen of fifteen of them.
+const CLASS_PROBE: usize = super::class_probe(8, CHUNK);
 
+// The safety bound holds in every build, sweep legs included: the kernels slice
+// `&input[..CLASS_PROBE]` behind a `len >= CHUNK` guard. The shipped width is a
+// separate claim and a sweep leg deliberately changes it; see
+// `super::CLASS_PROBE_OVERRIDE`.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8,
+  "AVX2 ships an 8-byte ASCII-class probe. Widening it reverts a measured \
+   narrowing that no test in this crate can fail on, so it fails here instead. \
+   The sweep table that chose 8 is in `CLASS_PROBE`'s doc comment above; moving \
+   this number means editing that comment in the same commit."
+);
 
 #[cfg_attr(not(tarpaulin), inline)]
 #[target_feature(enable = "avx2")]
@@ -167,8 +206,9 @@ macro_rules! skip_ascii_class {
 
       // A probe narrower than a chunk cannot be credited against the vector
       // loop's grid, so the loop restarts at zero and re-reads the probed
-      // bytes. With the shipped chunk-width probe this folds to `CHUNK` and
-      // the generated code is unchanged.
+      // bytes. The shipped probe is narrower than `CHUNK`, so this folds to
+      // `0`; it stays a comparison because `memspan_class_probe` can widen the
+      // probe back to a full chunk, and then the re-read would be wasted work.
       let mut cur = if CLASS_PROBE == CHUNK { CHUNK } else { 0 };
 
       while cur + 2 * CHUNK <= len {

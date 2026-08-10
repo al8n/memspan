@@ -320,9 +320,10 @@ fn miri_schedule_reaches_every_path() {
   let lengths = MIRI_LENGTHS;
   let has = |n: usize| lengths.contains(&n);
 
-  // 8 is the NEON probe; 16, 32 and 64 are the SSE4.2/simd128, AVX2 and
-  // AVX-512 chunks. For each, the schedule needs a length below it (scalar
-  // answer), at it (vector loop entry) and past it (tail).
+  // 8 is the probe on NEON, SSE4.2 and AVX2; 16, 32 and 64 are the
+  // SSE4.2/simd128, AVX2 and AVX-512 chunks. For each, the schedule needs a
+  // length below it (scalar answer), at it (vector loop entry) and past it
+  // (tail).
   for width in [8usize, 16, 32, 64] {
     assert!(
       lengths.iter().any(|&l| l > 0 && l < width),

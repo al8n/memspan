@@ -22,16 +22,56 @@ use crate::Needles;
 
 const CHUNK: usize = 16;
 
-/// Bytes classified scalar before the vector loop, defaulting to one chunk.
+/// Bytes classified scalar before the vector loop, narrower than one chunk.
 ///
-/// See [`crate::skip::class_probe`]. The NEON kernels ship a probe narrower
-/// than their chunk because a measured sweep on aarch64 showed the wider one
-/// costing a three-term predicate 1.9x a plain scalar loop; this backend keeps
-/// its chunk-width probe because nobody has timed the alternative on hardware
-/// that runs it. `.github/workflows/probe-sweep.yml` produces those numbers.
-const CLASS_PROBE: usize = super::class_probe(CHUNK, CHUNK);
+/// See [`crate::skip::class_probe`], and the AVX2 backend's `CLASS_PROBE` for
+/// the mechanism: the probe unrolls into one short-circuit branch tree per
+/// byte, and the cost tracks the number of predicate terms, so it lands on the
+/// identifier classes. (Not linked: that module is `x86_64`-only and this one
+/// also builds for 32-bit `x86`.)
+///
+/// Measured by `.github/workflows/probe-sweep.yml` (run `31298019336`) on an
+/// AMD EPYC 7763, two interleaved rounds per width, as a ratio to a plain
+/// scalar `position` loop measured in the same run. Above 1.00 is slower than
+/// the code the scanner replaced:
+///
+/// | probe | `skip_ident` | `skip_ident_start` |
+/// |-------|--------------|--------------------|
+/// | 16    | 1.41         | 1.27               |
+/// | **8** | 1.18         | **0.68**           |
+/// | 4     | 1.16         | 1.12               |
+///
+/// Eight is the only width measured that puts `skip_ident_start` back under
+/// the scalar loop, and that is what selects it.
+///
+/// **`skip_ident` does not reach parity on this tier at any width tested.**
+/// Narrowing improves it from 1.41 to 1.18, and 4 is nominally better again at
+/// 1.16, but both still lose to the plain scalar loop. This constant does not
+/// fix that class here; 4 is not chosen for it because 1.16 and 1.18 are two
+/// losses, and picking between them would cost `skip_ident_start` the only
+/// crossing the sweep found.
+///
+/// Narrowing is not free on the classes that already win: `skip_octal_digits`
+/// moves 0.68 -> 0.84 and `skip_whitespace` 0.65 -> 0.70. Both stay wins. Those
+/// magnitudes describe the sweep's one shared synthetic schedule, not any
+/// caller, and its rows must not be summed.
+const CLASS_PROBE: usize = super::class_probe(8, CHUNK);
 
+// Two assertions with two lifetimes. The first is the safety bound and holds in
+// every build, sweep legs included: the kernels slice `&input[..CLASS_PROBE]`
+// behind a `len >= CHUNK` guard, so a probe wider than a chunk would index past
+// the end. The second pins the width this backend *ships*, which a sweep leg
+// deliberately changes -- see `super::CLASS_PROBE_OVERRIDE` for why that gate
+// reads the selected value rather than testing the cfg name.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8,
+  "SSE4.2 ships an 8-byte ASCII-class probe. Widening it reverts a measured \
+   narrowing that no test in this crate can fail on, so it fails here instead. \
+   The sweep table that chose 8 is in `CLASS_PROBE`'s doc comment above; moving \
+   this number means editing that comment in the same commit."
+);
 
 /// Tests whether each byte of `chunk` lies in `[lo, hi]` (inclusive, unsigned).
 ///
@@ -178,8 +218,9 @@ macro_rules! skip_ascii_class {
 
       // A probe narrower than a chunk cannot be credited against the vector
       // loop's grid, so the loop restarts at zero and re-reads the probed
-      // bytes. With the shipped chunk-width probe this folds to `CHUNK` and
-      // the generated code is unchanged.
+      // bytes. The shipped probe is narrower than `CHUNK`, so this folds to
+      // `0`; it stays a comparison because `memspan_class_probe` can widen the
+      // probe back to a full chunk, and then the re-read would be wasted work.
       let mut cur = if CLASS_PROBE == CHUNK { CHUNK } else { 0 };
 
       // 2× unrolled: AND both match masks; all-ones ⟹ both chunks clean.

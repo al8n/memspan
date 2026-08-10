@@ -1,3 +1,130 @@
+# UNRELEASED
+
+PERFORMANCE
+
+1. Narrow the SSE4.2 and AVX2 ASCII-class scalar probes from a full chunk to 8 bytes
+   - Affects **x86/x86_64 only**, and only the `skip_ascii_class!` kernels. SSE4.2 goes
+     16 -> 8 and AVX2 32 -> 8. NEON already shipped 8. **AVX-512 and wasm `simd128` are
+     deliberately unchanged** — see below.
+   - Same defect as the NEON fix in 0.1.1, carried to the backends the maintainer's host
+     cannot run: the probe scans a compile-time-constant length, LLVM unrolls it into one
+     short-circuit branch tree per byte, and a caller whose run lengths vary mispredicts
+     in a different copy on every call. The cost tracks the number of predicate *terms*,
+     so it fell on `skip_ident` and `skip_ident_start` and left the single-range classes
+     alone.
+   - Two classes were **slower than the plain scalar `position` loop they replace**.
+     Measured by `.github/workflows/probe-sweep.yml` (run `31298019336`) on an AMD EPYC
+     7763, two interleaved rounds per width, as a ratio to that scalar loop measured in
+     the same run; round-to-round spread on these four cells was 0-2%:
+
+     | class | AVX2 32 -> 8 | SSE4.2 16 -> 8 |
+     |---|---|---|
+     | `skip_ident`       | 1.59 -> **0.96** | 1.41 -> 1.18 |
+     | `skip_ident_start` | 1.24 -> 1.11     | 1.27 -> **0.68** |
+
+     8 is the only width measured that puts `skip_ident` back under scalar on AVX2, and
+     the only one that does so for `skip_ident_start` on SSE4.2. That crossing is the
+     whole justification.
+   - **What this does not fix.** `skip_ident` on SSE4.2 does not reach parity at any width
+     tested: 8 improves it from 1.41 to 1.18, and 4 is nominally better again at 1.16, but
+     both still lose to the scalar loop. `skip_ident_start` on AVX2 likewise stays above
+     1.00 at every width tested.
+   - **What it costs.** The probe is one constant per backend, so all fifteen classes move.
+     On SSE4.2 two classes that were already winning get worse while staying wins:
+     `skip_octal_digits` 0.68 -> 0.84 and `skip_whitespace` 0.65 -> 0.70. The remaining
+     rows improve or hold on both tiers.
+   - **Read the sweep's own caveat before extending this.** Every row came from one shared
+     synthetic run-length schedule derived from two classes and reused for all fifteen, the
+     rows must not be summed, and an equal-weight version of that schedule reversed the
+     direction on fourteen of fifteen of them. Only the two rows above are acted on here,
+     because losing to your own fallback is an absolute failure rather than a weighted
+     preference.
+   - AVX-512 keeps its 64-byte probe and wasm `simd128` keeps its chunk-width probe: the
+     sweep's AVX-512 leg has never run, because GitHub's hosted pool does not offer the
+     feature, and no wasm leg exists. Both would be guesses. `--cfg memspan_class_probe="N"`
+     remains the hook for measuring them on a host that can.
+   - No API change. Every width was held against the independent scalar oracle in
+     `tests/short_run_differential.rs`, which the sweep runs per-width on real x86 hardware.
+   - **A revert fails the build, not a script.** No test in this repository can fail if
+     this constant is widened again — the differential suite is a correctness oracle and
+     passes at every width by design — so each backend asserts the width it ships, beside
+     the declaration, and rustc evaluates it:
+
+     ```rust
+     const _: () = assert!(super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == 8);
+     ```
+
+     That covers NEON and wasm `simd128` as well as the three x86 tiers, on every build
+     that compiles the module rather than only when a workflow runs a script, and it holds
+     the *whole* computation — the cfg-selected override, `class_probe`'s clamp, the chunk
+     width and the default argument — rather than a literal in one declaration. The two
+     backends that abstain assert `CLASS_PROBE == CHUNK`, so adopting an unmeasured
+     narrowing there fails until that line says otherwise. No hardware, no runner and no
+     threshold are involved.
+   - **What the assertions cannot see, `ci/check_probe_override.py` observes.** They stand
+     down when `--cfg memspan_class_probe="N"` is set, because a sweep leg sets it on
+     purpose — so an ambient override would move the width and disable the assertion that
+     would have noticed, in one stroke. The `probe-override` job runs a build and reads the
+     `--cfg` arguments rustc was actually handed, which catches that cfg whether it came
+     from `RUSTFLAGS`, `.cargo/config.toml` or a `cargo:rustc-cfg` line in `build.rs`,
+     without enumerating any of them; both of the last two were measured arriving that way
+     before the check was written. It refuses a verdict from a build that compiled nothing,
+     and it parses the invocation's arguments rather than searching its text, because every
+     clean build already carries the cfg name inside the `--check-cfg` declaration
+     `Cargo.toml` makes.
+   - **The timing is evidence, not the gate.** `probe-timing` in the same workflow still
+     times the shipped width on both x86 tiers of every pull request, prints each round,
+     the median and a reference line derived from the sweep's own shipped and chunk-width
+     measurements, and annotates a row that goes over — but it does not fail on one.
+     It did until the third review round, when the band turned out to depend on which CPU
+     model the hosted runner happened to be: the lines were calibrated on an AMD EPYC
+     7763, `ubuntu-latest` pins no model, and a model shift moves every round together.
+     Absence still fails: a missing series, round or result set is an error, because a
+     report that measures nothing and exits 0 is a defect this repository already shipped
+     once. It is **not** a scalar-parity check either — SSE4.2 `skip_ident` legitimately
+     measures 1.18 and AVX2 `skip_ident_start` 1.11, so a line at 1.00 would flag correct
+     code. `ci/report_probe_timing.py` derives both reference lines, and its selftest
+     rederives every number in its documentation from the recorded observations.
+   - A red check does not stop a merge in either case: this repository has no branch
+     protection rule or ruleset, so a failing leg is visible on the pull request and a
+     maintainer can still merge or push past it.
+
+INTERNAL
+
+1. Make the probe-sweep workflow's claims enforceable
+   - `.github/workflows/probe-sweep.yml` said it "does not gate anything" and nothing
+     else did either. It still passes no judgement on a *timing* — a sweep has no before
+     or after — but the shipped width is now gated from the source on every pull request
+     by the job above, and the workflow says where instead of leaving the reader to infer
+     that nothing does.
+   - **A leg that measures nothing no longer reports success.** When the CPU flag was
+     missing, every step of that tier — build, differential, sweep, render and upload —
+     was skipped by one shared `available == 'true'` condition and the leg exited green.
+     For the life of the workflow a green tick had been reporting absence as success,
+     which is why no AVX-512 data has ever existed. SSE4.2 and AVX2 now carry
+     `required_measurement: true` and fail if they render no table; AVX-512 is the one
+     optional leg, says so in its job name, and is excluded from the new
+     `require-measurements` job that holds the run's artifacts against the tiers the
+     matrix says must produce one.
+   - **`default_probe` is checked against the source.** The matrix hard-coded the width
+     each backend ships, and `ci/probe_sweep.py` uses that number three ways at once —
+     the "(shipped)" label, the gain baseline and the reach threshold — so drift
+     publishes a table wrong in three places that looks entirely convincing. It had
+     already drifted once. `ci/check_probe_matrix.py` now parses `class_probe(...)` out
+     of each `src/skip/<tier>.rs`, applies the same clamp the function applies, and
+     fails on any disagreement. It reads only what the compiler reads — comments and
+     string literals are blanked first, so a stale `// const CLASS_PROBE: usize =
+     super::class_probe(8, CHUNK);` cannot supply a width — and it counts declarations by
+     name rather than by shape, so a declaration written as something it cannot parse is
+     reported as unreadable instead of being counted as absent and stood in for. It also
+     holds the sweep's dispatcher-isolation flags against `probe-timing`'s, and is the
+     single source for which tiers must measure. This is the one question the compiler
+     cannot answer — whether a *workflow* still restates the shipped width correctly — so
+     the parser survives here and nowhere else.
+   - Render the sweep table under `shell: bash`. Without `pipefail`, `probe_sweep.py |
+     tee` took `tee`'s exit code, so every structural refusal that reporter makes was
+     unreachable — a refusal was written into the summary and the step passed.
+
 # 0.1.1 (August 9th, 2026)
 
 PERFORMANCE

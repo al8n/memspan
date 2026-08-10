@@ -25,7 +25,22 @@ const CHUNK: usize = 64;
 /// that runs it. `.github/workflows/probe-sweep.yml` produces those numbers.
 const CLASS_PROBE: usize = super::class_probe(CHUNK, CHUNK);
 
+// The safety bound holds in every build, sweep legs included: the kernels slice
+// `&input[..CLASS_PROBE]` behind a `len >= CHUNK` guard. The second assertion
+// pins the *abstention* -- this backend has never been measured, so it probes a
+// whole chunk, and it is written `CHUNK` rather than `64` so that adopting a
+// narrower probe here is an edit a reviewer sees rather than one integer
+// becoming another. A sweep leg deliberately changes the width; see
+// `super::CLASS_PROBE_OVERRIDE`.
 const _: () = assert!(CLASS_PROBE > 0 && CLASS_PROBE <= CHUNK);
+
+const _: () = assert!(
+  super::CLASS_PROBE_OVERRIDE != 0 || CLASS_PROBE == CHUNK,
+  "AVX-512 probes a whole chunk because no runner has ever timed the \
+   alternative. Narrowing it means claiming a measurement this crate does not \
+   have, so it fails here until this line says otherwise -- run \
+   `.github/workflows/probe-sweep.yml` on hardware with the feature first."
+);
 
 /// Range check [lo, hi] for AVX-512BW (2 ops, same cost as NEON).
 ///
