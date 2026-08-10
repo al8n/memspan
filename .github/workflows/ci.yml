@@ -489,10 +489,19 @@ jobs:
           rustup update stable --no-self-update
           rustup default stable
           rustup target add wasm32-wasip1
+      # `shell: bash` turns pipefail on (GitHub's unstated default is
+      # `bash -e {0}`, which does not have it): without it, `curl | bash`
+      # reports bash's exit status, not curl's, so a failed download still
+      # exits 0 and the install goes green. The `wasmtime --version` check
+      # backs that up by naming the actual binary the next step depends on,
+      # so a broken install fails here with its own cause instead of
+      # surfacing two steps later as the test step's runner exec error.
       - name: Install wasmtime
+        shell: bash
         run: |
           curl https://wasmtime.dev/install.sh -sSf | bash
           echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+          "$HOME/.wasmtime/bin/wasmtime" --version
       - name: Run integration tests under wasmtime (simd128)
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --
