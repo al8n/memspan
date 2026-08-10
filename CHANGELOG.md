@@ -1,4 +1,4 @@
-# UNRELEASED
+# 0.1.2 (August 10th, 2026)
 
 PERFORMANCE
 
