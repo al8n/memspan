@@ -98,3 +98,13 @@ pub(in crate::needles) fn eq_any_mask_const<const N: usize>(
     _ => eq_any_mask_dynamic(chunk, &needles),
   }
 }
+
+/// Returns a `uint8x16_t` where each byte lane is `0xFF` if the corresponding
+/// byte in `chunk` is not ASCII (`0x80..=0xFF`), or `0x00` otherwise.
+///
+/// The non-ASCII bytes are exactly the lanes that are negative as `i8`, so one
+/// compare against zero (`cmlt #0`) is the whole test.
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub(in crate::needles) fn high_bit_mask(chunk: uint8x16_t) -> uint8x16_t {
+  unsafe { vcltzq_s8(vreinterpretq_s8_u8(chunk)) }
+}

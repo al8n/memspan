@@ -47,3 +47,13 @@ pub(in crate::needles) fn eq_any_mask_const_simd128<const N: usize>(
     _ => eq_any_mask_dynamic_simd128(chunk, &needles),
   }
 }
+
+/// Returns a `v128` where each byte lane is `0xFF` if the byte in `chunk` is not
+/// ASCII (`0x80..=0xFF`), or `0x00` otherwise.
+///
+/// The non-ASCII bytes are exactly the lanes that are negative as `i8`, so one
+/// signed compare against zero (`i8x16.lt_s`) is the whole test.
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub(in crate::needles) fn high_bit_mask(chunk: v128) -> v128 {
+  i8x16_lt(chunk, i8x16_splat(0))
+}

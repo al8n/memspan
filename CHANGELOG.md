@@ -1,3 +1,28 @@
+# 0.1.3 (October 30th, 2026)
+
+FEATURES
+
+1. Add `skip_until_or_non_ascii`, a `skip_until` that also stops at the first non-ASCII
+   byte ([#20])
+   - Returns the index of the first byte that matches any of the needles or is
+     `0x80..=0xFF`. It takes every `Needles` type; an empty set finds the first non-ASCII
+     byte, and a non-ASCII needle is redundant.
+   - For a lexer whose input must be UTF-8: it scans for its delimiters and validates the
+     non-ASCII run where the scan stops, for example by measuring it with `skip_non_ascii`
+     and checking it with `core::str::from_utf8`. memspan itself does no UTF-8 validation.
+   - Built as a crate-private `Needles` adapter, so it runs `skip_until`'s dispatcher,
+     scalar probe, loops and overlap tails unchanged. Each SIMD chunk adds one compare and
+     one OR, or one mask extract (`vpmovb2m`) and one OR on AVX-512BW; the scalar path
+     runs the needle search, then an ASCII check of the bytes before the needle it found.
+   - `tests/skip_until_or_non_ascii.rs` holds it against an independent scalar oracle for
+     every needle type, every length up to 200 with every first-hit position, every
+     alignment, pseudo-random inputs and cursor walks, and all 256 byte values at the
+     offsets each backend's vector mask classifies, with a reduced schedule under Miri.
+   - `benches/skip_until.rs` gains a group comparing it with `skip_until` on the same
+     needles.
+
+[#20]: https://github.com/al8n/memspan/pull/20
+
 # 0.1.2 (August 10th, 2026)
 
 PERFORMANCE

@@ -87,9 +87,10 @@ All class functions return the byte length of the longest matching prefix.
 
 ## Generic operations
 
-`skip_while`, `skip_until`, `count_matches`, and `find_last` accept any
-[`Needles`] value — a single `u8`, a fixed-size array `[u8; N]`, or a `&[u8]`
-slice:
+`skip_while`, `skip_until`, `skip_until_or_non_ascii`, `count_matches`, and
+`find_last` accept any [`Needles`] value — a single `u8`, a fixed-size array
+`[u8; N]`, or a `&[u8]` slice. `skip_until_or_non_ascii` also stops at the
+first non-ASCII byte, for a lexer that validates UTF-8 where the scan stops:
 
 ```rust
 // Skip while any of several bytes match.
@@ -99,6 +100,10 @@ assert_eq!(n, 5);
 // Find the first occurrence of any needle — like memchr but multi-byte.
 let pos = memspan::skip_until(b"hello\nworld", b'\n');
 assert_eq!(pos, Some(5));
+
+// Stop at a needle or at the first non-ASCII byte, whichever comes first.
+let stop = memspan::skip_until_or_non_ascii("ab\u{e9}\"".as_bytes(), *b"\"\\");
+assert_eq!(stop, Some(2));
 
 // Count every newline in a buffer.
 let lines = memspan::count_matches(b"a\nb\nc\n", b'\n');
