@@ -1,3 +1,15 @@
+# UNRELEASED
+
+INTERNAL
+
+1. Drop the build script and the `cfg(tarpaulin)` gates ([#21])
+   - `build.rs` existed only to detect cargo-tarpaulin, so dependents no longer compile and run a
+     build script.
+   - Coverage has run on cargo-llvm-cov, whose source-based counters are unaffected by inlining, so
+     the `#[inline]` and `#[inline(always)]` attributes are unconditional now.
+
+[#21]: https://github.com/al8n/memspan/pull/21
+
 # 0.1.3 (October 30th, 2026)
 
 FEATURES

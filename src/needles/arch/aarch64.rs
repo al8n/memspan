@@ -1,6 +1,6 @@
 use core::arch::aarch64::*;
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn eq_any_mask_dynamic(chunk: uint8x16_t, needles: &[u8]) -> uint8x16_t {
   let mut any_mask = unsafe { vdupq_n_u8(0) };
 
@@ -13,7 +13,7 @@ pub(in crate::needles) fn eq_any_mask_dynamic(chunk: uint8x16_t, needles: &[u8])
   any_mask
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn eq_any_mask_const<const N: usize>(
   chunk: uint8x16_t,
   needles: [u8; N],
@@ -104,7 +104,7 @@ pub(in crate::needles) fn eq_any_mask_const<const N: usize>(
 ///
 /// The non-ASCII bytes are exactly the lanes that are negative as `i8`, so one
 /// compare against zero (`cmlt #0`) is the whole test.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn high_bit_mask(chunk: uint8x16_t) -> uint8x16_t {
   unsafe { vcltzq_s8(vreinterpretq_s8_u8(chunk)) }
 }

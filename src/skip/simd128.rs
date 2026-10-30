@@ -45,7 +45,7 @@ const _: () = assert!(
 ///
 /// The full-range case `lo = 0x00, hi = 0xFF` is special-cased: the bound
 /// would wrap to 0 and `u8x16_lt(x, 0)` would always be false.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn range_mask(chunk: v128, lo: u8, hi: u8) -> v128 {
   let width = hi.wrapping_sub(lo);
   if width == 0xFF {
@@ -57,22 +57,22 @@ pub(crate) fn range_mask(chunk: v128, lo: u8, hi: u8) -> v128 {
 
 // ── per-class mask functions ─────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn binary_mask(c: v128) -> v128 {
   range_mask(c, b'0', b'1')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn octal_digit_mask(c: v128) -> v128 {
   range_mask(c, b'0', b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn digit_mask(c: v128) -> v128 {
   range_mask(c, b'0', b'9')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn hex_digit_mask(c: v128) -> v128 {
   let digit = digit_mask(c);
   let lower = v128_or(c, u8x16_splat(0x20));
@@ -80,7 +80,7 @@ fn hex_digit_mask(c: v128) -> v128 {
   v128_or(digit, alpha)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn whitespace_mask(c: v128) -> v128 {
   let sp = i8x16_eq(c, i8x16_splat(b' ' as i8));
   let tab = i8x16_eq(c, i8x16_splat(b'\t' as i8));
@@ -89,53 +89,53 @@ fn whitespace_mask(c: v128) -> v128 {
   v128_or(v128_or(sp, tab), v128_or(nl, cr))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn alpha_mask(c: v128) -> v128 {
   let lower = v128_or(c, u8x16_splat(0x20));
   range_mask(lower, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn alphanumeric_mask(c: v128) -> v128 {
   v128_or(alpha_mask(c), digit_mask(c))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ident_start_mask(c: v128) -> v128 {
   v128_or(alpha_mask(c), i8x16_eq(c, i8x16_splat(b'_' as i8)))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ident_mask(c: v128) -> v128 {
   v128_or(alphanumeric_mask(c), i8x16_eq(c, i8x16_splat(b'_' as i8)))
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn lower_mask(c: v128) -> v128 {
   range_mask(c, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn upper_mask(c: v128) -> v128 {
   range_mask(c, b'A', b'Z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_mask(c: v128) -> v128 {
   range_mask(c, 0x00, 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn non_ascii_mask(c: v128) -> v128 {
   range_mask(c, 0x80, 0xFF)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_graphic_mask(c: v128) -> v128 {
   range_mask(c, 0x21, 0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_control_mask(c: v128) -> v128 {
   let ctrl = range_mask(c, 0x00, 0x1F);
   let del = i8x16_eq(c, i8x16_splat(0x7F_u8 as i8));
@@ -143,7 +143,7 @@ fn ascii_control_mask(c: v128) -> v128 {
 }
 
 /// Extracts a 16-bit bitmask (1 bit per lane) from a 0xFF/0x00 mask vector.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn bitmask(m: v128) -> u32 {
   i8x16_bitmask(m) as u32
 }
@@ -152,7 +152,7 @@ fn bitmask(m: v128) -> u32 {
 
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[inline(always)]
     pub(super) fn $name(input: &[u8]) -> usize {
       let len = input.len();
       if len < CHUNK {
@@ -247,7 +247,7 @@ skip_ascii_class!(
 
 // ── count_matches / find_last ────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(super) fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
   Nd: Needles,
@@ -293,7 +293,7 @@ where
   count
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(super) fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
   Nd: Needles,
@@ -353,7 +353,7 @@ where
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(super) fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
   Nd: Needles,
@@ -414,7 +414,7 @@ where
   }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(super) fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where
   Nd: Needles,

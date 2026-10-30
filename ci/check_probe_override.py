@@ -96,9 +96,8 @@ OVERRIDE_CFG = "memspan_class_probe"
 CRATE = "memspan"
 
 # The feature sets observed. A build script can emit a cfg conditionally on a
-# feature -- this one already emits `tarpaulin` that way -- so observing only
-# the default build would leave a build the crate can be published under
-# unobserved.
+# feature, so observing only the default build would leave a build the crate can
+# be published under unobserved.
 CONFIGURATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("default features", ()),
     ("--all-features", ("--all-features",)),

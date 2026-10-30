@@ -12,7 +12,7 @@ use core::arch::x86_64::*;
 ///
 /// Iterates over needles with an OR-accumulator. Used for slices longer than
 /// 8 elements where a const-unrolled tree is not available.
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "sse2")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_sse2(
   chunk: __m128i,
@@ -26,7 +26,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_sse2(
 }
 
 /// Const-dispatch variant: unrolled balanced OR tree for 0–8 needles.
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "sse2")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_sse2<const N: usize>(
   chunk: __m128i,
@@ -86,7 +86,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_const_sse2<const N: usize>(
 ///
 /// The non-ASCII bytes are exactly the lanes that are negative as `i8`, so one
 /// signed compare against zero (`pcmpgtb`) is the whole test.
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "sse2")]
 pub(in crate::needles) unsafe fn high_bit_mask_sse2(chunk: __m128i) -> __m128i {
   _mm_cmplt_epi8(chunk, _mm_setzero_si128())
@@ -97,7 +97,7 @@ pub(in crate::needles) unsafe fn high_bit_mask_sse2(chunk: __m128i) -> __m128i {
 /// Returns a `__m256i` where each byte lane is `0xFF` if the byte in `chunk`
 /// matches any needle.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx2")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx2(
   chunk: __m256i,
@@ -112,7 +112,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx2(
 
 /// Const-dispatch variant for AVX2: unrolled balanced OR tree for 0–8 needles.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx2")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_avx2<const N: usize>(
   chunk: __m256i,
@@ -170,7 +170,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_const_avx2<const N: usize>(
 /// Returns a `__m256i` where each byte lane is `0xFF` if the byte in `chunk` is
 /// not ASCII (`0x80..=0xFF`): the AVX2 form of [`high_bit_mask_sse2`].
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx2")]
 pub(in crate::needles) unsafe fn high_bit_mask_avx2(chunk: __m256i) -> __m256i {
   _mm256_cmpgt_epi8(_mm256_setzero_si256(), chunk)
@@ -182,7 +182,7 @@ pub(in crate::needles) unsafe fn high_bit_mask_avx2(chunk: __m256i) -> __m256i {
 /// matches any needle. Uses `_mm512_cmpeq_epi8_mask` which returns the mask
 /// directly — no `movemask` conversion needed.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx512(chunk: __m512i, needles: &[u8]) -> u64 {
   let mut acc: u64 = 0;
@@ -194,7 +194,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_dynamic_avx512(chunk: __m512i, need
 
 /// Const-dispatch variant for AVX-512BW: unrolled balanced OR for 0–8 needles.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(in crate::needles) unsafe fn eq_any_mask_const_avx512<const N: usize>(
   chunk: __m512i,
@@ -223,7 +223,7 @@ pub(in crate::needles) unsafe fn eq_any_mask_const_avx512<const N: usize>(
 /// not ASCII (`0x80..=0xFF`). `_mm512_movepi8_mask` copies each byte's high bit
 /// straight into the mask (`vpmovb2m`), so no compare is needed.
 #[cfg(target_arch = "x86_64")]
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(in crate::needles) unsafe fn high_bit_mask_avx512(chunk: __m512i) -> u64 {
   _mm512_movepi8_mask(chunk)

@@ -43,9 +43,9 @@ env:
 #   path.
 #
 # Each platform excludes SIMD files it cannot compile (gated behind
-# `#[cfg(target_arch)]`). Without exclusion, tarpaulin would count them
-# as 0/N uncovered lines, dragging down the per-platform number. After
-# Codecov merges, every arch file is covered by its native host.
+# `#[cfg(target_arch)]`), so each platform's number covers the code it
+# builds. After Codecov merges, every arch file is covered by its native
+# host.
 #
 # wasm32 simd128 (`src/skip/simd128.rs`, `src/needles/arch/wasm32.rs`)
 # is intentionally excluded from every entry: rustc cannot emit LLVM
@@ -196,7 +196,7 @@ jobs:
   # the AVX-512 dispatch branch executes.
   #
   # Output is cobertura XML so the existing `upload-codecov` job can
-  # ingest it the same way as the tarpaulin matrix entries.
+  # ingest it the same way as the other matrix entries.
   coverage-sde:
     name: coverage (linux-x86_64-avx512-sde)
     runs-on: ubuntu-latest
