@@ -411,12 +411,90 @@ fn bench_comment_newline_workload(c: &mut Criterion) {
   group.finish();
 }
 
+/// `skip_until_or_non_ascii` against `skip_until` with the same needles, the
+/// four bytes a GraphQL lexer stops on inside a string. On all-ASCII input with
+/// the only hit at the end, the gap between the two rows is the cost of the
+/// non-ASCII check. The early case puts a non-ASCII byte past the first 16- and
+/// 32-byte chunks, where `skip_until_or_non_ascii` stops and `skip_until` runs
+/// on to the needle at the end.
+fn bench_or_non_ascii(c: &mut Criterion) {
+  const NEEDLES: [u8; 4] = *b"\"\\\r\n";
+  const LENGTHS: [usize; 4] = [16, 64, 256, 4 * 1024];
+  const EARLY_LEN: usize = 4 * 1024;
+  const EARLY_AT: usize = 40;
+
+  let mut group = c.benchmark_group("skip_until/or_non_ascii/end_match");
+
+  for len in LENGTHS {
+    let input = input_with_match_at_end(len, b'a', b'"');
+    group.throughput(Throughput::Bytes(len as u64));
+
+    group.bench_with_input(BenchmarkId::new("skip_until", len), &input, |b, input| {
+      b.iter(|| {
+        black_box(skip::skip_until(
+          black_box(input.as_slice()),
+          black_box(NEEDLES),
+        ))
+      })
+    });
+
+    group.bench_with_input(
+      BenchmarkId::new("skip_until_or_non_ascii", len),
+      &input,
+      |b, input| {
+        b.iter(|| {
+          black_box(skip::skip_until_or_non_ascii(
+            black_box(input.as_slice()),
+            black_box(NEEDLES),
+          ))
+        })
+      },
+    );
+  }
+
+  group.finish();
+
+  let mut input = input_with_match_at_end(EARLY_LEN, b'a', b'"');
+  input[EARLY_AT] = 0xC3;
+
+  let mut group = c.benchmark_group("skip_until/or_non_ascii/early_non_ascii");
+
+  group.bench_with_input(
+    BenchmarkId::new("skip_until", EARLY_LEN),
+    &input,
+    |b, input| {
+      b.iter(|| {
+        black_box(skip::skip_until(
+          black_box(input.as_slice()),
+          black_box(NEEDLES),
+        ))
+      })
+    },
+  );
+
+  group.bench_with_input(
+    BenchmarkId::new("skip_until_or_non_ascii", EARLY_LEN),
+    &input,
+    |b, input| {
+      b.iter(|| {
+        black_box(skip::skip_until_or_non_ascii(
+          black_box(input.as_slice()),
+          black_box(NEEDLES),
+        ))
+      })
+    },
+  );
+
+  group.finish();
+}
+
 criterion_group!(
   benches,
   bench_micro_end_match,
   bench_density_sweep,
   bench_graphql_ignored_workload,
   bench_quote_or_escape_workload,
-  bench_comment_newline_workload
+  bench_comment_newline_workload,
+  bench_or_non_ascii
 );
 criterion_main!(benches);

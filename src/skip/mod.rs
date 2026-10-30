@@ -1,4 +1,4 @@
-use crate::Needles;
+use crate::{Needles, needles::OrNonAscii};
 
 #[cfg(target_arch = "aarch64")]
 use crate::utils::neon_available;
@@ -458,6 +458,65 @@ where
       needles.tail_find(input)
     }
   }
+}
+
+/// Returns the index of the first byte in `input` that matches any of `needles`
+/// or is not ASCII (`0x80..=0xFF`).
+///
+/// This is [`skip_until`] with every non-ASCII byte added to the needle set,
+/// and it dispatches the same way: the same tiers, thresholds and loops. Each
+/// SIMD chunk costs one vector compare and one OR more than in [`skip_until`],
+/// or one mask extract (`vpmovb2m`) and one OR on AVX-512BW. The scalar path
+/// (inputs under 16 bytes, or no SIMD tier available) runs the needle search,
+/// then an ASCII check of the bytes before the needle it found.
+///
+/// An empty `needles` finds the first non-ASCII byte. A non-ASCII needle is
+/// redundant, because every non-ASCII byte already stops the scan.
+///
+/// The typical caller is a lexer whose input must be UTF-8. It scans for its
+/// delimiters with this function, and where the scan stops on a non-ASCII byte
+/// it measures the run with [`skip_non_ascii`] and validates it, for example
+/// with [`core::str::from_utf8`]. A maximal non-ASCII run holds whole sequences
+/// when it is valid, because no UTF-8 sequence contains an ASCII byte. memspan
+/// itself does no UTF-8 validation.
+///
+/// # Examples
+///
+/// ```
+/// use memspan::{skip_non_ascii, skip_until_or_non_ascii};
+///
+/// // Whichever comes first: a needle, or a non-ASCII byte.
+/// assert_eq!(skip_until_or_non_ascii("say \"caf\u{e9}\"".as_bytes(), *b"\"\\"), Some(4));
+/// assert_eq!(skip_until_or_non_ascii("caf\u{e9} \"x\"".as_bytes(), *b"\"\\"), Some(3));
+///
+/// // No needles: the first non-ASCII byte, if any.
+/// assert_eq!(skip_until_or_non_ascii("caf\u{e9}".as_bytes(), []), Some(3));
+/// assert_eq!(skip_until_or_non_ascii(b"plain", []), None);
+///
+/// // The length of a string body that ends at `"` and must be UTF-8.
+/// fn string_body_len(src: &[u8]) -> Option<usize> {
+///   let mut pos = 0;
+///   loop {
+///     pos += skip_until_or_non_ascii(&src[pos..], b'"')?;
+///     if src[pos] == b'"' {
+///       return Some(pos);
+///     }
+///     let run = skip_non_ascii(&src[pos..]);
+///     core::str::from_utf8(&src[pos..pos + run]).ok()?;
+///     pos += run;
+///   }
+/// }
+///
+/// assert_eq!(string_body_len("caf\u{e9}\" tail".as_bytes()), Some(5));
+/// assert_eq!(string_body_len(b"caf\xFF\" tail"), None);
+/// assert_eq!(string_body_len(b"unterminated"), None);
+/// ```
+#[cfg_attr(not(tarpaulin), inline(always))]
+pub fn skip_until_or_non_ascii<Nd>(input: &[u8], needles: Nd) -> Option<usize>
+where
+  Nd: Needles,
+{
+  skip_until(input, OrNonAscii(needles))
 }
 
 /// Returns the number of leading bytes in `input` that match any of `needles`.

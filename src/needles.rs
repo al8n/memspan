@@ -534,3 +534,145 @@ impl<const N: usize> Needles for [u8; N] {
     arch::wasm32::eq_any_mask_const_simd128(chunk, *self)
   }
 }
+
+/// A needle set that also matches every non-ASCII byte (`0x80..=0xFF`).
+///
+/// This backs [`crate::skip::skip_until_or_non_ascii`]. Every backend's
+/// `skip_until` reaches its needles only through [`Needles::tail_find`] and the
+/// `eq_any_mask_*` methods, so wrapping the caller's set here reuses the
+/// dispatcher, the scalar probe, the vector loops and the overlap tails
+/// unchanged; each mask is the inner mask OR'ed with a high-bit mask.
+pub(crate) struct OrNonAscii<Nd>(pub(crate) Nd);
+
+impl<Nd: Needles> sealed::Sealed for OrNonAscii<Nd> {}
+
+impl<Nd: Needles> Needles for OrNonAscii<Nd> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn needle_count(&self) -> usize {
+    // Only zero-ness changes an answer. `skip_until`, `skip_while` and
+    // `find_last` in `src/skip/mod.rs` read this count (the first and last
+    // return `None` at zero; `skip_while` sends a count of one or less to the
+    // scalar `prefix_len`, which returns what the vector path would), and the
+    // default `Needles::is_empty` compares it with zero. The `+ 1` counts the
+    // non-ASCII class, so the count is never zero and an empty inner set still
+    // reaches the non-ASCII search instead of returning `None` up front.
+    self.0.needle_count() + 1
+  }
+
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn tail_find(&self, tail: &[u8]) -> Option<usize> {
+    // Exact composition, inner needles first: a non-ASCII byte before the
+    // first needle ends the ASCII prefix of `tail[..limit]` early and is the
+    // answer; otherwise nothing before that needle is non-ASCII, so the answer
+    // is the needle, or `None` when there is neither.
+    let len = tail.len();
+    let hit = self.0.tail_find(tail);
+    let limit = hit.unwrap_or(len);
+    let end = crate::skip::prefix_len_ascii(&tail[..limit]);
+    if end < limit { Some(end) } else { hit }
+  }
+
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn prefix_len(&self, input: &[u8]) -> usize {
+    // Terminates: every iteration that does not return advances `i` by at least one.
+    let mut i = 0;
+    loop {
+      let a = self.0.prefix_len(&input[i..]);
+      i += a;
+      let b = crate::skip::prefix_len_non_ascii(&input[i..]);
+      i += b;
+      if a == 0 && b == 0 {
+        return i;
+      }
+    }
+  }
+
+  #[cfg(target_arch = "aarch64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_neon(
+    &self,
+    chunk: core::arch::aarch64::uint8x16_t,
+  ) -> core::arch::aarch64::uint8x16_t {
+    let needles = self.0.eq_any_mask_neon(chunk);
+    unsafe { core::arch::aarch64::vorrq_u8(needles, arch::aarch64::high_bit_mask(chunk)) }
+  }
+
+  #[cfg(target_arch = "x86")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
+    let needles = self.0.eq_any_mask_sse2(chunk);
+    unsafe { core::arch::x86::_mm_or_si128(needles, arch::x86::high_bit_mask_sse2(chunk)) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
+    let needles = self.0.eq_any_mask_sse2(chunk);
+    unsafe { core::arch::x86_64::_mm_or_si128(needles, arch::x86::high_bit_mask_sse2(chunk)) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
+    let needles = self.0.eq_any_mask_avx2(chunk);
+    unsafe { core::arch::x86_64::_mm256_or_si256(needles, arch::x86::high_bit_mask_avx2(chunk)) }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
+    self.0.eq_any_mask_avx512(chunk) | unsafe { arch::x86::high_bit_mask_avx512(chunk) }
+  }
+
+  #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
+    let needles = self.0.eq_any_mask_simd128(chunk);
+    core::arch::wasm32::v128_or(needles, arch::wasm32::high_bit_mask(chunk))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// Holds `OrNonAscii`'s scalar methods to the definition on every input of up
+  /// to four bytes over one needle, one other ASCII byte and both ends of the
+  /// non-ASCII range. `prefix_len` is on no public path, so nothing else checks
+  /// it.
+  fn check_scalar_methods<Nd: Needles>(needles: Nd, members: &[u8]) {
+    const ALPHABET: [u8; 4] = [b'"', b'a', 0x80, 0xFF];
+    let adapter = OrNonAscii(needles);
+    let is_member = |b: &u8| *b >= 0x80 || members.contains(b);
+    let mut buf = [0u8; 4];
+    for len in 0..=buf.len() {
+      for code in 0..ALPHABET.len().pow(len as u32) {
+        let mut rest = code;
+        for slot in &mut buf[..len] {
+          *slot = ALPHABET[rest % ALPHABET.len()];
+          rest /= ALPHABET.len();
+        }
+        let input = &buf[..len];
+        assert_eq!(
+          adapter.tail_find(input),
+          input.iter().position(is_member),
+          "tail_find({input:?}) with needles {members:?}"
+        );
+        assert_eq!(
+          adapter.prefix_len(input),
+          input.iter().position(|b| !is_member(b)).unwrap_or(len),
+          "prefix_len({input:?}) with needles {members:?}"
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn or_non_ascii_scalar_methods_match_the_definition() {
+    check_scalar_methods([0u8; 0], &[]);
+    check_scalar_methods(b'"', b"\"");
+    check_scalar_methods(*b"\"\xC3", b"\"\xC3");
+    let nine: &[u8] = b"()[]{}<>\"";
+    check_scalar_methods(nine, nine);
+  }
+}

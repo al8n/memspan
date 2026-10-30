@@ -83,7 +83,7 @@ memspan = { version = "0.1", default-features = false }
 
 ## 通用操作
 
-`skip_while`、`skip_until`、`count_matches` 和 `find_last` 接受任意 [`Needles`] 值——单个 `u8`、固定大小数组 `[u8; N]` 或 `&[u8]` 切片：
+`skip_while`、`skip_until`、`skip_until_or_non_ascii`、`count_matches` 和 `find_last` 接受任意 [`Needles`] 值——单个 `u8`、固定大小数组 `[u8; N]` 或 `&[u8]` 切片。`skip_until_or_non_ascii` 还会在第一个非 ASCII 字节处停下，适用于需要在扫描停止处校验 UTF-8 的词法分析器：
 
 ```rust
 // 跳过匹配多个字节中任意一个的前缀。
@@ -93,6 +93,10 @@ assert_eq!(n, 5);
 // 查找任意针字节的第一次出现——类似 memchr 但支持多字节。
 let pos = memspan::skip_until(b"hello\nworld", b'\n');
 assert_eq!(pos, Some(5));
+
+// 在针字节或第一个非 ASCII 字节处停下，以先出现者为准。
+let stop = memspan::skip_until_or_non_ascii("ab\u{e9}\"".as_bytes(), *b"\"\\");
+assert_eq!(stop, Some(2));
 
 // 统计缓冲区中所有换行符。
 let lines = memspan::count_matches(b"a\nb\nc\n", b'\n');
