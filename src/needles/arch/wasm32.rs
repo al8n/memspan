@@ -2,7 +2,7 @@ use core::arch::wasm32::*;
 
 /// Returns a `v128` where each byte lane is `0xFF` if the byte in `chunk`
 /// matches any needle, or `0x00` otherwise.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn eq_any_mask_dynamic_simd128(chunk: v128, needles: &[u8]) -> v128 {
   let mut acc = i8x16_splat(0);
   for &n in needles {
@@ -12,7 +12,7 @@ pub(in crate::needles) fn eq_any_mask_dynamic_simd128(chunk: v128, needles: &[u8
 }
 
 /// Const-dispatch variant: unrolled balanced OR tree for 0–8 needles.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn eq_any_mask_const_simd128<const N: usize>(
   chunk: v128,
   needles: [u8; N],
@@ -53,7 +53,7 @@ pub(in crate::needles) fn eq_any_mask_const_simd128<const N: usize>(
 ///
 /// The non-ASCII bytes are exactly the lanes that are negative as `i8`, so one
 /// signed compare against zero (`i8x16.lt_s`) is the whole test.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(in crate::needles) fn high_bit_mask(chunk: v128) -> v128 {
   i8x16_lt(chunk, i8x16_splat(0))
 }

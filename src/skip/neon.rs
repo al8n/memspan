@@ -85,7 +85,7 @@ const _: () = assert!(
 /// This is the simdjson-style `shrn`-trick: a single narrow shift replaces the
 /// `vand`+`vaddv` reduction.
 #[doc(hidden)]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn nibble_mask(cmp: uint8x16_t) -> u64 {
   let narrowed = unsafe { vshrn_n_u16::<4>(vreinterpretq_u16_u8(cmp)) };
   unsafe { vget_lane_u64::<0>(vreinterpret_u64_u8(narrowed)) }
@@ -104,7 +104,7 @@ pub fn nibble_mask(cmp: uint8x16_t) -> u64 {
 /// formula would compute `bound = 0xFF + 1 = 0`, making `vcltq_u8(x, 0)`
 /// always false. Instead we return an all-ones mask directly.
 #[doc(hidden)]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn range_mask(chunk: uint8x16_t, lo: u8, hi: u8) -> uint8x16_t {
   let width = hi.wrapping_sub(lo);
   if width == 0xFF {
@@ -115,22 +115,22 @@ pub fn range_mask(chunk: uint8x16_t, lo: u8, hi: u8) -> uint8x16_t {
   unsafe { vcltq_u8(shifted, bound) }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn binary_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, b'0', b'1')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn octal_digit_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, b'0', b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn digit_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, b'0', b'9')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn hex_digit_mask(chunk: uint8x16_t) -> uint8x16_t {
   let digit = digit_mask(chunk);
   let lower = unsafe { vorrq_u8(chunk, vdupq_n_u8(0x20)) };
@@ -140,7 +140,7 @@ fn hex_digit_mask(chunk: uint8x16_t) -> uint8x16_t {
 
 /// Whitespace: `' '`, `'\t'`, `'\n'`, `'\r'`. Four direct equality probes
 /// reduced via a balanced OR tree (≈ 4 cycles latency on a 4-wide pipeline).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn whitespace_mask(chunk: uint8x16_t) -> uint8x16_t {
   let space = unsafe { vceqq_u8(chunk, vdupq_n_u8(b' ')) };
   let tab = unsafe { vceqq_u8(chunk, vdupq_n_u8(b'\t')) };
@@ -150,7 +150,7 @@ fn whitespace_mask(chunk: uint8x16_t) -> uint8x16_t {
 }
 
 /// `[a-zA-Z]` via the OR-with-0x20 case-fold trick: 3 ops/chunk.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn alpha_mask(chunk: uint8x16_t) -> uint8x16_t {
   let lower = unsafe { vorrq_u8(chunk, vdupq_n_u8(0x20)) };
   range_mask(lower, b'a', b'z')
@@ -158,7 +158,7 @@ fn alpha_mask(chunk: uint8x16_t) -> uint8x16_t {
 
 /// `[a-zA-Z0-9]` — composes `alpha_mask` and `digit_mask`. The two range
 /// chains run independently and merge with a final `vorrq` (≈ 6 ops/chunk).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn alphanumeric_mask(chunk: uint8x16_t) -> uint8x16_t {
   let alpha = alpha_mask(chunk);
   let digit = digit_mask(chunk);
@@ -166,7 +166,7 @@ fn alphanumeric_mask(chunk: uint8x16_t) -> uint8x16_t {
 }
 
 /// `[a-zA-Z_]` — alpha plus a single `_` equality.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ident_start_mask(chunk: uint8x16_t) -> uint8x16_t {
   let alpha = alpha_mask(chunk);
   let underscore = unsafe { vceqq_u8(chunk, vdupq_n_u8(b'_')) };
@@ -176,39 +176,39 @@ fn ident_start_mask(chunk: uint8x16_t) -> uint8x16_t {
 /// `[a-zA-Z0-9_]` — alphanumeric plus underscore. The heaviest mask in the
 /// family (≈ 8 ops/chunk) but still ~4× cheaper than the equivalent
 /// 63-needle `skip_while` slice.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ident_mask(chunk: uint8x16_t) -> uint8x16_t {
   let alphanum = alphanumeric_mask(chunk);
   let underscore = unsafe { vceqq_u8(chunk, vdupq_n_u8(b'_')) };
   unsafe { vorrq_u8(alphanum, underscore) }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn lower_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn upper_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, b'A', b'Z')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, 0x00, 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn non_ascii_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, 0x80, 0xFF)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_graphic_mask(chunk: uint8x16_t) -> uint8x16_t {
   range_mask(chunk, 0x21, 0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn ascii_control_mask(chunk: uint8x16_t) -> uint8x16_t {
   let ctrl = range_mask(chunk, 0x00, 0x1F);
   let del = unsafe { vceqq_u8(chunk, vdupq_n_u8(0x7F)) };
@@ -217,7 +217,7 @@ fn ascii_control_mask(chunk: uint8x16_t) -> uint8x16_t {
 
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[inline(always)]
     #[cfg(target_feature = "neon")]
     pub(super) fn $name(input: &[u8]) -> usize {
       let len = input.len();
@@ -324,7 +324,7 @@ skip_ascii_class!(
   ascii_control_mask
 );
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 #[cfg(target_feature = "neon")]
 pub(super) fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
@@ -371,7 +371,7 @@ where
   count
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 #[cfg(target_feature = "neon")]
 pub(super) fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -429,7 +429,7 @@ where
   last
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 #[cfg(target_feature = "neon")]
 pub(super) fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -510,7 +510,7 @@ where
   }
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 #[cfg(target_feature = "neon")]
 pub(super) fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where

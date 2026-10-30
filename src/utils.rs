@@ -2,7 +2,7 @@
 
 /// NEON availability on aarch64 — std variant (runtime detection).
 #[cfg(all(target_arch = "aarch64", feature = "std"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn neon_available() -> bool {
   if cfg!(memspan_force_scalar) {
     return false;
@@ -12,7 +12,7 @@ pub fn neon_available() -> bool {
 
 /// NEON availability on aarch64 — no-std variant (compile-time).
 #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub const fn neon_available() -> bool {
   !cfg!(memspan_force_scalar) && cfg!(target_feature = "neon")
 }
@@ -24,7 +24,7 @@ pub const fn neon_available() -> bool {
 /// SSE4.2 is the baseline for the 128-bit x86 SIMD path; it implies SSE4.1,
 /// SSSE3, SSE3, and SSE2. Nearly all x86-64 CPUs since 2008 have it.
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = "std"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn sse42_available() -> bool {
   if cfg!(memspan_force_scalar) || cfg!(memspan_disable_sse42) {
     return false;
@@ -34,14 +34,14 @@ pub fn sse42_available() -> bool {
 
 /// SSE4.2 availability — no-std variant (compile-time).
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), not(feature = "std")))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub const fn sse42_available() -> bool {
   !cfg!(memspan_force_scalar) && !cfg!(memspan_disable_sse42) && cfg!(target_feature = "sse4.2")
 }
 
 /// AVX2 availability — std variant (runtime detection).
 #[cfg(all(target_arch = "x86_64", feature = "std"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn avx2_available() -> bool {
   if cfg!(memspan_force_scalar) || cfg!(memspan_disable_avx2) {
     return false;
@@ -51,7 +51,7 @@ pub fn avx2_available() -> bool {
 
 /// AVX2 availability — no-std variant (compile-time).
 #[cfg(all(target_arch = "x86_64", not(feature = "std")))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub const fn avx2_available() -> bool {
   !cfg!(memspan_force_scalar) && !cfg!(memspan_disable_avx2) && cfg!(target_feature = "avx2")
 }
@@ -61,7 +61,7 @@ pub const fn avx2_available() -> bool {
 /// AVX-512BW is required for 512-bit byte-level operations
 /// (`_mm512_cmpeq_epi8_mask`, `_mm512_cmple_epu8_mask`, …).
 #[cfg(all(target_arch = "x86_64", feature = "std"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn avx512bw_available() -> bool {
   if cfg!(memspan_force_scalar) || cfg!(memspan_disable_avx512) {
     return false;
@@ -71,7 +71,7 @@ pub fn avx512bw_available() -> bool {
 
 /// AVX-512BW availability — no-std variant (compile-time).
 #[cfg(all(target_arch = "x86_64", not(feature = "std")))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub const fn avx512bw_available() -> bool {
   !cfg!(memspan_force_scalar) && !cfg!(memspan_disable_avx512) && cfg!(target_feature = "avx512bw")
 }
@@ -80,7 +80,7 @@ pub const fn avx512bw_available() -> bool {
 
 /// WASM SIMD128 availability (compile-time only; WASM has no runtime CPUID).
 #[cfg(target_arch = "wasm32")]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub const fn simd128_available() -> bool {
   !cfg!(memspan_force_scalar) && !cfg!(memspan_disable_simd128) && cfg!(target_feature = "simd128")
 }

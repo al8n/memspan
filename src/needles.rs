@@ -12,7 +12,7 @@ mod sealed {
 
 macro_rules! tail_find_fixed {
   ($name:ident, $($needle:ident),+) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     fn $name(tail: &[u8], $($needle: u8),+) -> Option<usize> {
       for (idx, &byte) in tail.iter().enumerate() {
@@ -37,7 +37,7 @@ tail_find_fixed!(tail_find8, a, b, c, d, e, f, g, h);
 
 macro_rules! prefix_len_fixed {
   ($name:ident, $($needle:ident),+) => {
-    #[cfg_attr(not(tarpaulin), inline(always))]
+    #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     fn $name(input: &[u8], $($needle: u8),+) -> usize {
       for (idx, &byte) in input.iter().enumerate() {
@@ -69,7 +69,7 @@ pub trait Needles: sealed::Sealed {
   fn needle_count(&self) -> usize;
 
   /// Whether the needles are empty (e.g., an empty slice).
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn is_empty(&self) -> bool {
     self.needle_count() == 0
   }
@@ -146,23 +146,23 @@ impl<T> Needles for &T
 where
   T: Needles + ?Sized,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn needle_count(&self) -> usize {
     (**self).needle_count()
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     (**self).tail_find(tail)
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn prefix_len(&self, input: &[u8]) -> usize {
     (**self).prefix_len(input)
   }
 
   #[cfg(target_arch = "aarch64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
@@ -171,54 +171,54 @@ where
   }
 
   #[cfg(target_arch = "x86")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
     (**self).eq_any_mask_sse2(chunk)
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
     (**self).eq_any_mask_sse2(chunk)
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
     (**self).eq_any_mask_avx2(chunk)
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
     (**self).eq_any_mask_avx512(chunk)
   }
 
   #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     (**self).eq_any_mask_simd128(chunk)
   }
 }
 
 impl Needles for u8 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn needle_count(&self) -> usize {
     1
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     tail_find1(tail, *self)
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn prefix_len(&self, input: &[u8]) -> usize {
     prefix_len1(input, *self)
   }
 
   #[cfg(target_arch = "aarch64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
@@ -228,7 +228,7 @@ impl Needles for u8 {
   }
 
   #[cfg(target_arch = "x86")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
     unsafe {
       use core::arch::x86::*;
@@ -237,7 +237,7 @@ impl Needles for u8 {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
     unsafe {
       use core::arch::x86_64::*;
@@ -246,7 +246,7 @@ impl Needles for u8 {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
     unsafe {
       use core::arch::x86_64::*;
@@ -255,7 +255,7 @@ impl Needles for u8 {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
     unsafe {
       use core::arch::x86_64::*;
@@ -264,7 +264,7 @@ impl Needles for u8 {
   }
 
   #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     use core::arch::wasm32::*;
     i8x16_eq(chunk, i8x16_splat(*self as i8))
@@ -272,12 +272,12 @@ impl Needles for u8 {
 }
 
 impl Needles for [u8] {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn needle_count(&self) -> usize {
     self.len()
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     match self {
       [] => None,
@@ -293,7 +293,7 @@ impl Needles for [u8] {
     }
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn prefix_len(&self, input: &[u8]) -> usize {
     match self {
       [] => 0,
@@ -313,7 +313,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(target_arch = "aarch64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
@@ -337,7 +337,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(target_arch = "x86")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
     match self {
       [] => unsafe { core::arch::x86::_mm_setzero_si128() },
@@ -360,7 +360,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
     match self {
       [] => unsafe { core::arch::x86_64::_mm_setzero_si128() },
@@ -383,7 +383,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
     match self {
       [] => unsafe { core::arch::x86_64::_mm256_setzero_si256() },
@@ -406,7 +406,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
     match self {
       [] => 0u64,
@@ -431,7 +431,7 @@ impl Needles for [u8] {
   }
 
   #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     match self {
       [] => arch::wasm32::eq_any_mask_const_simd128(chunk, []),
@@ -455,12 +455,12 @@ impl Needles for [u8] {
 }
 
 impl<const N: usize> Needles for [u8; N] {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn needle_count(&self) -> usize {
     N
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     match self.as_slice() {
       [] => None,
@@ -476,7 +476,7 @@ impl<const N: usize> Needles for [u8; N] {
     }
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn prefix_len(&self, input: &[u8]) -> usize {
     match self.as_slice() {
       [] => 0,
@@ -496,7 +496,7 @@ impl<const N: usize> Needles for [u8; N] {
   }
 
   #[cfg(target_arch = "aarch64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
@@ -505,31 +505,31 @@ impl<const N: usize> Needles for [u8; N] {
   }
 
   #[cfg(target_arch = "x86")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
     unsafe { arch::x86::eq_any_mask_const_sse2(chunk, *self) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
     unsafe { arch::x86::eq_any_mask_const_sse2(chunk, *self) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
     unsafe { arch::x86::eq_any_mask_const_avx2(chunk, *self) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
     unsafe { arch::x86::eq_any_mask_const_avx512(chunk, *self) }
   }
 
   #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     arch::wasm32::eq_any_mask_const_simd128(chunk, *self)
   }
@@ -547,7 +547,7 @@ pub(crate) struct OrNonAscii<Nd>(pub(crate) Nd);
 impl<Nd: Needles> sealed::Sealed for OrNonAscii<Nd> {}
 
 impl<Nd: Needles> Needles for OrNonAscii<Nd> {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn needle_count(&self) -> usize {
     // Only zero-ness changes an answer. `skip_until`, `skip_while` and
     // `find_last` in `src/skip/mod.rs` read this count (the first and last
@@ -559,7 +559,7 @@ impl<Nd: Needles> Needles for OrNonAscii<Nd> {
     self.0.needle_count() + 1
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn tail_find(&self, tail: &[u8]) -> Option<usize> {
     // Exact composition, inner needles first: a non-ASCII byte before the
     // first needle ends the ASCII prefix of `tail[..limit]` early and is the
@@ -572,7 +572,7 @@ impl<Nd: Needles> Needles for OrNonAscii<Nd> {
     if end < limit { Some(end) } else { hit }
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn prefix_len(&self, input: &[u8]) -> usize {
     // Terminates: every iteration that does not return advances `i` by at least one.
     let mut i = 0;
@@ -588,7 +588,7 @@ impl<Nd: Needles> Needles for OrNonAscii<Nd> {
   }
 
   #[cfg(target_arch = "aarch64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_neon(
     &self,
     chunk: core::arch::aarch64::uint8x16_t,
@@ -598,34 +598,34 @@ impl<Nd: Needles> Needles for OrNonAscii<Nd> {
   }
 
   #[cfg(target_arch = "x86")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86::__m128i) -> core::arch::x86::__m128i {
     let needles = self.0.eq_any_mask_sse2(chunk);
     unsafe { core::arch::x86::_mm_or_si128(needles, arch::x86::high_bit_mask_sse2(chunk)) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_sse2(&self, chunk: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
     let needles = self.0.eq_any_mask_sse2(chunk);
     unsafe { core::arch::x86_64::_mm_or_si128(needles, arch::x86::high_bit_mask_sse2(chunk)) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx2(&self, chunk: core::arch::x86_64::__m256i) -> core::arch::x86_64::__m256i {
     let needles = self.0.eq_any_mask_avx2(chunk);
     unsafe { core::arch::x86_64::_mm256_or_si256(needles, arch::x86::high_bit_mask_avx2(chunk)) }
   }
 
   #[cfg(target_arch = "x86_64")]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_avx512(&self, chunk: core::arch::x86_64::__m512i) -> u64 {
     self.0.eq_any_mask_avx512(chunk) | unsafe { arch::x86::high_bit_mask_avx512(chunk) }
   }
 
   #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[inline(always)]
   fn eq_any_mask_simd128(&self, chunk: core::arch::wasm32::v128) -> core::arch::wasm32::v128 {
     let needles = self.0.eq_any_mask_simd128(chunk);
     core::arch::wasm32::v128_or(needles, arch::wasm32::high_bit_mask(chunk))

@@ -26,53 +26,53 @@ pub(crate) mod simd128;
 
 // ── scalar predicates ────────────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_binary_digit(byte: u8) -> bool {
   byte == b'0' || byte == b'1'
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_octal_digit(byte: u8) -> bool {
   matches!(byte, b'0'..=b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_digit(byte: u8) -> bool {
   byte.is_ascii_digit()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_hex_digit(byte: u8) -> bool {
   let lower = byte | 0x20;
   is_digit(byte) || matches!(lower, b'a'..=b'f')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_alpha(byte: u8) -> bool {
   (byte | 0x20).is_ascii_lowercase()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_alphanumeric(byte: u8) -> bool {
   is_alpha(byte) || is_digit(byte)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_ident_start(byte: u8) -> bool {
   is_alpha(byte) || byte == b'_'
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_ident(byte: u8) -> bool {
   is_alphanumeric(byte) || byte == b'_'
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_whitespace(byte: u8) -> bool {
   matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn prefix_len_by(input: &[u8], is_match: impl Fn(u8) -> bool) -> usize {
   input
     .iter()
@@ -80,107 +80,107 @@ fn prefix_len_by(input: &[u8], is_match: impl Fn(u8) -> bool) -> usize {
     .unwrap_or(input.len())
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_binary(input: &[u8]) -> usize {
   prefix_len_by(input, is_binary_digit)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_octal_digits(input: &[u8]) -> usize {
   prefix_len_by(input, is_octal_digit)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_digits(input: &[u8]) -> usize {
   prefix_len_by(input, is_digit)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_hex_digits(input: &[u8]) -> usize {
   prefix_len_by(input, is_hex_digit)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_alpha(input: &[u8]) -> usize {
   prefix_len_by(input, is_alpha)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_alphanumeric(input: &[u8]) -> usize {
   prefix_len_by(input, is_alphanumeric)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_ident_start(input: &[u8]) -> usize {
   prefix_len_by(input, is_ident_start)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_ident(input: &[u8]) -> usize {
   prefix_len_by(input, is_ident)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_whitespace(input: &[u8]) -> usize {
   prefix_len_by(input, is_whitespace)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_lower(byte: u8) -> bool {
   byte.is_ascii_lowercase()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_upper(byte: u8) -> bool {
   byte.is_ascii_uppercase()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_ascii_byte(byte: u8) -> bool {
   byte.is_ascii()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_non_ascii(byte: u8) -> bool {
   !byte.is_ascii()
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_ascii_graphic(byte: u8) -> bool {
   matches!(byte, 0x21..=0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn is_ascii_control(byte: u8) -> bool {
   matches!(byte, 0x00..=0x1F | 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_lower(input: &[u8]) -> usize {
   prefix_len_by(input, is_lower)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_upper(input: &[u8]) -> usize {
   prefix_len_by(input, is_upper)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_ascii(input: &[u8]) -> usize {
   prefix_len_by(input, is_ascii_byte)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_non_ascii(input: &[u8]) -> usize {
   prefix_len_by(input, is_non_ascii)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_ascii_graphic(input: &[u8]) -> usize {
   prefix_len_by(input, is_ascii_graphic)
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) fn prefix_len_ascii_control(input: &[u8]) -> usize {
   prefix_len_by(input, is_ascii_control)
 }
@@ -267,7 +267,7 @@ pub(crate) const CLASS_PROBE_OVERRIDE: usize = cfg_select! {
   target_arch = "x86_64",
   all(target_arch = "wasm32", target_feature = "simd128"),
 ))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub(crate) const fn class_probe(default: usize, chunk: usize) -> usize {
   // `0` has to keep meaning "no override", because that is what tells this
   // function to use `default` *and* what tells every backend its shipped-width
@@ -309,7 +309,7 @@ pub(crate) const fn class_probe(default: usize, chunk: usize) -> usize {
 // ── x86/x86_64 dispatch helpers ──────────────────────────────────────────────
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn dispatch_skip_until_x86<Nd: Needles>(input: &[u8], needles: Nd) -> Option<usize> {
   #[cfg(target_arch = "x86_64")]
   if avx512bw_available() {
@@ -329,7 +329,7 @@ fn dispatch_skip_until_x86<Nd: Needles>(input: &[u8], needles: Nd) -> Option<usi
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn dispatch_skip_while_x86<Nd: Needles>(input: &[u8], needles: Nd) -> usize {
   #[cfg(target_arch = "x86_64")]
   if avx512bw_available() {
@@ -366,7 +366,7 @@ fn find_last_scalar<Nd: Needles>(input: &[u8], needles: Nd) -> Option<usize> {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn dispatch_count_matches_x86<Nd: Needles>(input: &[u8], needles: Nd) -> usize {
   #[cfg(target_arch = "x86_64")]
   {
@@ -384,7 +384,7 @@ fn dispatch_count_matches_x86<Nd: Needles>(input: &[u8], needles: Nd) -> usize {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 fn dispatch_find_last_x86<Nd: Needles>(input: &[u8], needles: Nd) -> Option<usize> {
   #[cfg(target_arch = "x86_64")]
   {
@@ -429,7 +429,7 @@ macro_rules! x86_class_dispatch {
 /// WASM SIMD128 (wasm32) depending on what the CPU supports at runtime.
 /// Falls back to a scalar loop on unsupported targets or when SIMD is
 /// disabled via `memspan_force_scalar`.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
   Nd: Needles,
@@ -511,7 +511,7 @@ where
 /// assert_eq!(string_body_len(b"caf\xFF\" tail"), None);
 /// assert_eq!(string_body_len(b"unterminated"), None);
 /// ```
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_until_or_non_ascii<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
   Nd: Needles,
@@ -520,7 +520,7 @@ where
 }
 
 /// Returns the number of leading bytes in `input` that match any of `needles`.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where
   Nd: Needles,
@@ -551,7 +551,7 @@ where
 }
 
 /// Returns the length of the leading ASCII binary-digit prefix (`0` or `1`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_binary(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -573,7 +573,7 @@ pub fn skip_binary(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII decimal-digit prefix (`0..=9`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_digits(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -595,7 +595,7 @@ pub fn skip_digits(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII hexadecimal-digit prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_hex_digits(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -617,7 +617,7 @@ pub fn skip_hex_digits(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII octal-digit prefix (`0..=7`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_octal_digits(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -639,7 +639,7 @@ pub fn skip_octal_digits(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII whitespace prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_whitespace(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -661,7 +661,7 @@ pub fn skip_whitespace(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII alphabetic prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_alpha(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -683,7 +683,7 @@ pub fn skip_alpha(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII alphanumeric prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_alphanumeric(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -705,7 +705,7 @@ pub fn skip_alphanumeric(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading C-style identifier-start prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_ident_start(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -727,7 +727,7 @@ pub fn skip_ident_start(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading C-style identifier-continuation prefix.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_ident(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -749,7 +749,7 @@ pub fn skip_ident(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII lowercase prefix (`a..=z`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_lower(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -771,7 +771,7 @@ pub fn skip_lower(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII uppercase prefix (`A..=Z`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_upper(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -793,7 +793,7 @@ pub fn skip_upper(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading ASCII byte prefix (bytes `0x00..=0x7F`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_ascii(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -815,7 +815,7 @@ pub fn skip_ascii(input: &[u8]) -> usize {
 }
 
 /// Returns the length of the leading non-ASCII byte prefix (bytes `0x80..=0xFF`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_non_ascii(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -838,7 +838,7 @@ pub fn skip_non_ascii(input: &[u8]) -> usize {
 
 /// Returns the length of the leading ASCII graphic character prefix (`0x21..=0x7E`,
 /// i.e. printable non-space characters).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_ascii_graphic(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -861,7 +861,7 @@ pub fn skip_ascii_graphic(input: &[u8]) -> usize {
 
 /// Returns the length of the leading ASCII control character prefix
 /// (`0x00..=0x1F` and `0x7F`).
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_ascii_control(input: &[u8]) -> usize {
   cfg_select! {
     target_arch = "aarch64" => {
@@ -888,7 +888,7 @@ pub fn skip_ascii_control(input: &[u8]) -> usize {
 /// matching bytes are counted via SIMD popcount (`count_ones` on the bitmask).
 /// Useful for counting newlines to build line-number tables, counting delimiter
 /// occurrences, etc.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
   Nd: Needles,
@@ -916,7 +916,7 @@ where
 /// Scans the entire input front-to-back, accumulating the rightmost match
 /// position using SIMD bitmask `leading_zeros` to find the last set bit in
 /// each chunk. The SIMD backends are the same as those used by [`skip_until`].
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
   Nd: Needles,
@@ -946,7 +946,7 @@ where
 
 /// Returns the number of bytes before the first `\n`, or `input.len()` if
 /// there is no newline. Equivalent to `skip_until(input, b'\n').unwrap_or(input.len())`.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn skip_until_newline(input: &[u8]) -> usize {
   skip_until(input, b'\n').unwrap_or(input.len())
 }
@@ -954,7 +954,7 @@ pub fn skip_until_newline(input: &[u8]) -> usize {
 /// Returns `true` if any byte in `input` matches any of `needles`.
 ///
 /// This is `skip_until(input, needles).is_some()` with a cleaner call-site name.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[inline(always)]
 pub fn contains_any<Nd: Needles>(input: &[u8], needles: Nd) -> bool {
   skip_until(input, needles).is_some()
 }

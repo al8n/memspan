@@ -85,7 +85,6 @@ rust_2018_idioms = "warn"
 single_use_lifetimes = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(all_tests)',
-  'cfg(tarpaulin)',
   # Testing / coverage helpers. Set via `RUSTFLAGS='--cfg ...'` in CI to
   # force the dispatcher down specific tiers so every fallback path gets
   # coverage even on runners that would normally pick the top tier.

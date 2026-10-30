@@ -47,7 +47,7 @@ const _: () = assert!(
 /// `_mm512_sub_epi8` does wrapping u8 subtraction (identical bit pattern to
 /// unsigned). `_mm512_cmple_epu8_mask` then does an unsigned ≤ comparison and
 /// returns a `u64` mask directly — no further conversion needed.
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(crate) unsafe fn range_mask(chunk: __m512i, lo: u8, hi: u8) -> u64 {
   let x = _mm512_sub_epi8(chunk, _mm512_set1_epi8(lo as i8));
@@ -56,25 +56,25 @@ pub(crate) unsafe fn range_mask(chunk: __m512i, lo: u8, hi: u8) -> u64 {
 
 // ── per-class mask functions (return u64) ────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn binary_mask(c: __m512i) -> u64 {
   range_mask(c, b'0', b'1')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn octal_digit_mask(c: __m512i) -> u64 {
   range_mask(c, b'0', b'7')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn digit_mask(c: __m512i) -> u64 {
   range_mask(c, b'0', b'9')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn hex_digit_mask(c: __m512i) -> u64 {
   let digit = digit_mask(c);
@@ -83,7 +83,7 @@ unsafe fn hex_digit_mask(c: __m512i) -> u64 {
   digit | alpha
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn whitespace_mask(c: __m512i) -> u64 {
   let sp = _mm512_cmpeq_epi8_mask(c, _mm512_set1_epi8(b' ' as i8));
@@ -93,62 +93,62 @@ unsafe fn whitespace_mask(c: __m512i) -> u64 {
   sp | tab | nl | cr
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn alpha_mask(c: __m512i) -> u64 {
   let lower = _mm512_or_si512(c, _mm512_set1_epi8(0x20u8 as i8));
   range_mask(lower, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn alphanumeric_mask(c: __m512i) -> u64 {
   alpha_mask(c) | digit_mask(c)
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn ident_start_mask(c: __m512i) -> u64 {
   alpha_mask(c) | _mm512_cmpeq_epi8_mask(c, _mm512_set1_epi8(b'_' as i8))
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn ident_mask(c: __m512i) -> u64 {
   alphanumeric_mask(c) | _mm512_cmpeq_epi8_mask(c, _mm512_set1_epi8(b'_' as i8))
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn lower_mask(c: __m512i) -> u64 {
   range_mask(c, b'a', b'z')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn upper_mask(c: __m512i) -> u64 {
   range_mask(c, b'A', b'Z')
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn ascii_mask(c: __m512i) -> u64 {
   range_mask(c, 0x00, 0x7F)
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn non_ascii_mask(c: __m512i) -> u64 {
   range_mask(c, 0x80, 0xFF)
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn ascii_graphic_mask(c: __m512i) -> u64 {
   range_mask(c, 0x21, 0x7E)
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 unsafe fn ascii_control_mask(c: __m512i) -> u64 {
   let ctrl = range_mask(c, 0x00, 0x1F);
@@ -160,7 +160,7 @@ unsafe fn ascii_control_mask(c: __m512i) -> u64 {
 
 macro_rules! skip_ascii_class {
   ($name:ident, $prefix_len:ident, $mask:ident) => {
-    #[cfg_attr(not(tarpaulin), inline)]
+    #[inline]
     #[target_feature(enable = "avx512bw")]
     pub(super) unsafe fn $name(input: &[u8]) -> usize {
       let len = input.len();
@@ -256,7 +256,7 @@ skip_ascii_class!(
 
 // ── count_matches / find_last ────────────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(super) unsafe fn count_matches<Nd>(input: &[u8], needles: Nd) -> usize
 where
@@ -303,7 +303,7 @@ where
   count
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(super) unsafe fn find_last<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -364,7 +364,7 @@ where
 
 // ── generic skip_until / skip_while ─────────────────────────────────────────
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(super) unsafe fn skip_until<Nd>(input: &[u8], needles: Nd) -> Option<usize>
 where
@@ -424,7 +424,7 @@ where
   }
 }
 
-#[cfg_attr(not(tarpaulin), inline)]
+#[inline]
 #[target_feature(enable = "avx512bw")]
 pub(super) unsafe fn skip_while<Nd>(input: &[u8], needles: Nd) -> usize
 where
